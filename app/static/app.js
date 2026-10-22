@@ -17,6 +17,7 @@ let scenes = [],
   returnTimer = null,
   generation = 0,
   segmenter = null,
+  uploadSegmenter = null,
   segmentationReady = false,
   personBounds = null,
   lastPersonSeen = 0,
@@ -117,6 +118,20 @@ async function setupSegmenter() {
       modelAssetPath: "/static/vendor/tasks-vision/selfie_segmenter.tflite",
     },
     runningMode: "VIDEO",
+    outputConfidenceMasks: true,
+    outputCategoryMask: false,
+  });
+}
+async function setupUploadSegmenter() {
+  if (uploadSegmenter) return;
+  const vision = await FilesetResolver.forVisionTasks(
+    "/static/vendor/tasks-vision/wasm",
+  );
+  uploadSegmenter = await ImageSegmenter.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: "/static/vendor/tasks-vision/selfie_segmenter.tflite",
+    },
+    runningMode: "IMAGE",
     outputConfidenceMasks: true,
     outputCategoryMask: false,
   });
@@ -1619,21 +1634,176 @@ async function loadCreatureAdmin() {
   }
   $("#creature-settings").hidden = false;
 }
+function canvasBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (blob) =>
+        blob
+          ? resolve(blob)
+          : reject(Error("The processed image could not be encoded.")),
+      type,
+      quality,
+    ),
+  );
+}
+function alphaBounds(pixels, width, height, threshold = 8) {
+  let minX = width,
+    minY = height,
+    maxX = -1,
+    maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (pixels[(y * width + x) * 4 + 3] <= threshold) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  return maxX < minX ? null : { minX, minY, maxX, maxY };
+}
+async function prepareCreatureImage(file) {
+  const bitmap = await createImageBitmap(file),
+    maxInputSide = 2048,
+    scale = Math.min(1, maxInputSide / Math.max(bitmap.width, bitmap.height)),
+    width = Math.max(1, Math.round(bitmap.width * scale)),
+    height = Math.max(1, Math.round(bitmap.height * scale)),
+    source = document.createElement("canvas"),
+    sourceContext = source.getContext("2d", { willReadFrequently: true });
+  source.width = width;
+  source.height = height;
+  sourceContext.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const originalPixels = sourceContext.getImageData(0, 0, width, height),
+    hasTransparency = originalPixels.data.some(
+      (_, index) => index % 4 === 3 && originalPixels.data[index] < 250,
+    );
+  let bounds;
+  if (hasTransparency) {
+    bounds = alphaBounds(originalPixels.data, width, height);
+  } else {
+    await setupUploadSegmenter();
+    const result = uploadSegmenter.segment(source),
+      personMask = result.confidenceMasks?.[0];
+    if (!personMask) {
+      result.close();
+      throw Error(
+        "No person mask was returned. Turn off automatic background removal to upload the original image.",
+      );
+    }
+    const values = personMask.getAsFloat32Array(),
+      maskCanvas = document.createElement("canvas"),
+      maskContext = maskCanvas.getContext("2d"),
+      maskPixels = maskContext.createImageData(
+        personMask.width,
+        personMask.height,
+      );
+    maskCanvas.width = personMask.width;
+    maskCanvas.height = personMask.height;
+    let minX = personMask.width,
+      minY = personMask.height,
+      maxX = -1,
+      maxY = -1;
+    for (let i = 0; i < values.length; i++) {
+      const confidence = Math.max(
+          0,
+          Math.min(1, (values[i] - 0.18) / 0.58),
+        ),
+        alpha = confidence * confidence * (3 - 2 * confidence),
+        x = i % personMask.width,
+        y = Math.floor(i / personMask.width);
+      maskPixels.data[i * 4] =
+        maskPixels.data[i * 4 + 1] =
+        maskPixels.data[i * 4 + 2] =
+          255;
+      maskPixels.data[i * 4 + 3] = Math.round(alpha * 255);
+      if (alpha > 0.12) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    if (maxX < minX) {
+      result.close();
+      throw Error(
+        "No person was found. Turn off automatic background removal to upload the original image.",
+      );
+    }
+    maskContext.putImageData(maskPixels, 0, 0);
+    sourceContext.globalCompositeOperation = "destination-in";
+    sourceContext.imageSmoothingEnabled = true;
+    sourceContext.drawImage(maskCanvas, 0, 0, width, height);
+    sourceContext.globalCompositeOperation = "source-over";
+    bounds = {
+      minX: (minX / personMask.width) * width,
+      minY: (minY / personMask.height) * height,
+      maxX: ((maxX + 1) / personMask.width) * width,
+      maxY: ((maxY + 1) / personMask.height) * height,
+    };
+    result.close();
+  }
+  if (!bounds) throw Error("The image has no visible subject.");
+
+  const subjectWidth = bounds.maxX - bounds.minX,
+    subjectHeight = bounds.maxY - bounds.minY,
+    padding = Math.max(
+      12,
+      Math.round(Math.max(subjectWidth, subjectHeight) * 0.08),
+    ),
+    cropX = Math.max(0, Math.floor(bounds.minX - padding)),
+    cropY = Math.max(0, Math.floor(bounds.minY - padding)),
+    cropRight = Math.min(width, Math.ceil(bounds.maxX + padding)),
+    cropBottom = Math.min(height, Math.ceil(bounds.maxY + padding)),
+    cropWidth = cropRight - cropX,
+    cropHeight = cropBottom - cropY,
+    output = document.createElement("canvas");
+  output.width = Math.max(64, cropWidth);
+  output.height = Math.max(64, cropHeight);
+  output
+    .getContext("2d")
+    .drawImage(
+      source,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+      Math.floor((output.width - cropWidth) / 2),
+      Math.floor((output.height - cropHeight) / 2),
+      cropWidth,
+      cropHeight,
+    );
+  let blob = await canvasBlob(output, "image/png");
+  if (blob.size > 12 * 1024 * 1024)
+    blob = await canvasBlob(output, "image/webp", 0.94);
+  if (blob.size > 12 * 1024 * 1024)
+    throw Error(
+      "The processed image is still larger than 12 MB. Try a smaller photo.",
+    );
+  return blob;
+}
 async function uploadCreature(e) {
   e.preventDefault();
   const name = $("#creature-name").value.trim(),
     file = $("#creature-file").files[0];
   if (!name || !file) return;
-  $("#creature-message").textContent = "Uploading creature…";
+  if (file.size > 12 * 1024 * 1024)
+    throw Error("Creature image exceeds 12 MB.");
+  const removeBackground = $("#creature-auto-cutout").checked;
+  $("#creature-message").textContent = removeBackground
+    ? "Finding the person, removing the background, and trimming the image…"
+    : "Uploading creature…";
+  const upload = removeBackground ? await prepareCreatureImage(file) : file;
   const response = await fetch(
     `/api/admin/creatures?name=${encodeURIComponent(name)}`,
     {
       method: "POST",
       headers: {
-        "Content-Type": file.type || "application/octet-stream",
+        "Content-Type": upload.type || "application/octet-stream",
         "X-Admin-Pin": $("#pin").value,
       },
-      body: file,
+      body: upload,
     },
   );
   if (!response.ok) {
@@ -1644,7 +1814,9 @@ async function uploadCreature(e) {
   }
   $("#creature-upload").reset();
   await loadCreatureAdmin();
-  $("#creature-message").textContent = `Added “${name}”. It is now available to every scene.`;
+  $("#creature-message").textContent = removeBackground
+    ? `Added “${name}” with its background removed. It is now available to every scene.`
+    : `Added “${name}”. It is now available to every scene.`;
 }
 async function loadAdminSettings() {
   const response = await fetch("/api/admin/settings", {

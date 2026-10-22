@@ -559,6 +559,18 @@ input[type="number"] {
   gap: 6px;
   color: var(--muted);
 }
+.creature-cutout-toggle {
+  grid-column: 1 / -1;
+  display: flex !important;
+  align-items: center;
+  gap: 10px !important;
+  color: var(--text) !important;
+}
+.creature-cutout-toggle input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--green);
+}
 input[type="file"],
 select {
   min-height: 52px;
