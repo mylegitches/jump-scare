@@ -173,6 +173,12 @@ main {
   padding: 54px 48px 24px;
   margin: auto;
 }
+#menu {
+  padding-top: 24px;
+}
+#menu h1 {
+  margin-top: 0;
+}
 .eyebrow,
 h1 {
   font-weight: 650;
