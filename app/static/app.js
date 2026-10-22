@@ -1156,7 +1156,8 @@ function drawPosePromptOnVideo(now) {
   ctx.restore();
 }
 const POSE_PROMPT_MS = 1400,
-  COUNTDOWN_MS = 3000;
+  COUNTDOWN_MS = 3000,
+  SCARE_LEAD_MS = 500;
 function draw(now) {
   ctx.drawImage(background, 0, 0);
   const countdownElapsed = recording ? now - started - POSE_PROMPT_MS : 0,
@@ -1166,8 +1167,8 @@ function draw(now) {
     posePromptActive = recording && countdownElapsed < 0;
   if (stream && video.readyState >= 2) updateSegmentation(now);
   const scareProgress =
-      recording && remaining <= 250
-        ? Math.min(1, (250 - remaining) / 200)
+      recording && remaining <= SCARE_LEAD_MS
+        ? Math.min(1, (SCARE_LEAD_MS - remaining) / 200)
         : null,
     hasPersonCutout =
       $("#cutout").checked && segmentationReady && personBounds;
@@ -1216,7 +1217,7 @@ function draw(now) {
       lastCountdown = count;
       playTick(count);
     }
-    if (remaining <= 250 && !scarePlayed) {
+    if (remaining <= SCARE_LEAD_MS && !scarePlayed) {
       scarePlayed = true;
       playRecordedScare();
     }
