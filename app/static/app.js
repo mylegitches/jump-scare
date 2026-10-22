@@ -25,6 +25,7 @@ let scenes = [],
   recordingAudio = null,
   lastCountdown = 0,
   scarePlayed = false,
+  scarePlacement = null,
   reactionMs = 1500,
   boothName = "Midnight Portrait Booth",
   showHeaderControls = true,
@@ -558,19 +559,63 @@ const GHOUL_STYLES = {
   "rat-king": ["#85766b", "#1b1716", "#ffdd61", "rats"],
   "room-guest": ["#d3c7bd", "#20191b", "#ff3030", "long"],
 };
+function maskCoverage(x, y, width, height) {
+  if (!segmentationReady || !$("#cutout").checked) return 0;
+  const left = Math.max(0, Math.floor(x)),
+    top = Math.max(0, Math.floor(y)),
+    right = Math.min(mask.width, Math.ceil(x + width)),
+    bottom = Math.min(mask.height, Math.ceil(y + height));
+  if (right <= left || bottom <= top) return 0;
+  const pixels = mc.getImageData(left, top, right - left, bottom - top).data,
+    sampleStep = 12;
+  let occupied = 0,
+    samples = 0;
+  for (let py = 0; py < bottom - top; py += sampleStep) {
+    for (let px = 0; px < right - left; px += sampleStep) {
+      occupied += pixels[(py * (right - left) + px) * 4 + 3] / 255;
+      samples++;
+    }
+  }
+  return samples ? occupied / samples : 0;
+}
+function chooseScarePlacement(image, scene) {
+  const low = scene.ghoul === "cave-crawler" || scene.ghoul === "rat-king",
+    sideHeight = low ? 570 : 720,
+    cornerHeight = low ? 500 : 610,
+    candidates = [
+      { name: "right", centerX: 1030, bottom: 735, height: sideHeight, enterX: 320, enterY: 130 },
+      { name: "left", centerX: 250, bottom: 735, height: sideHeight, enterX: -320, enterY: 130 },
+      { name: "top-right", centerX: 1030, bottom: 600, height: cornerHeight, enterX: 170, enterY: -300 },
+      { name: "top-left", centerX: 250, bottom: 600, height: cornerHeight, enterX: -170, enterY: -300 },
+    ];
+  for (const candidate of candidates) {
+    const width = (image.naturalWidth / image.naturalHeight) * candidate.height,
+      left = candidate.centerX - width / 2,
+      top = candidate.bottom - candidate.height,
+      faceWidth = Math.min(280, width * 0.58),
+      faceHeight = Math.min(250, candidate.height * 0.36),
+      faceLeft = candidate.centerX - faceWidth / 2,
+      faceTop = top + candidate.height * 0.12;
+    candidate.score =
+      maskCoverage(faceLeft, faceTop, faceWidth, faceHeight) * 0.78 +
+      maskCoverage(left, top, width, candidate.height) * 0.22;
+  }
+  candidates.sort((a, b) => a.score - b.score);
+  return candidates[0];
+}
 function ghoul(progress, scene = selected) {
   const image = creatureImages.get(scene?.ghoul);
   if (image?.complete && image.naturalWidth) {
     const eased = 1 - Math.pow(1 - progress, 3),
-      low = scene.ghoul === "cave-crawler" || scene.ghoul === "rat-king",
-      targetHeight = low ? 620 : 760,
-      ratio = targetHeight / image.naturalHeight,
+      placement =
+        scarePlacement || (scarePlacement = chooseScarePlacement(image, scene)),
+      ratio = placement.height / image.naturalHeight,
       scale = 0.56 + eased * 0.44,
       width = image.naturalWidth * ratio * scale,
       height = image.naturalHeight * ratio * scale,
-      center = low ? 845 : 900,
-      x = center - width / 2 + (1 - eased) * 300,
-      y = 735 - height + (1 - eased) * 330;
+      x =
+        placement.centerX - width / 2 + (1 - eased) * placement.enterX,
+      y = placement.bottom - height + (1 - eased) * placement.enterY;
     ctx.save();
     ctx.globalAlpha = Math.min(1, eased * 2.6);
     ctx.filter = "drop-shadow(0 20px 28px rgba(0,0,0,.9)) contrast(1.08)";
@@ -855,10 +900,15 @@ function ghoul(progress, scene = selected) {
 function draw(now) {
   ctx.drawImage(background, 0, 0);
   const remaining = recording ? 3000 - (now - started) : 3000;
-  if (recording && remaining <= 250)
-    ghoul(Math.min(1, (250 - remaining) / 200), selected);
+  if (stream && video.readyState >= 2) updateSegmentation(now);
+  const scareProgress =
+      recording && remaining <= 250
+        ? Math.min(1, (250 - remaining) / 200)
+        : null,
+    hasPersonCutout = $("#cutout").checked && segmentationReady;
+  if (scareProgress !== null && hasPersonCutout)
+    ghoul(scareProgress, selected);
   if (stream && video.readyState >= 2) {
-    updateSegmentation(now);
     const r = coverSize();
     lc.clearRect(0, 0, 1280, 720);
     lc.save();
@@ -873,6 +923,8 @@ function draw(now) {
     }
     ctx.drawImage(layer, 0, 0);
   }
+  if (scareProgress !== null && !hasPersonCutout)
+    ghoul(scareProgress, selected);
   if (recording) {
     const count = remaining > 0 ? Math.ceil(remaining / 1000) : 0;
     $("#countdown").textContent = count || "";
@@ -979,6 +1031,7 @@ function start() {
   snapped = false;
   lastCountdown = 0;
   scarePlayed = false;
+  scarePlacement = null;
   const mime = [
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
