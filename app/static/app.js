@@ -26,6 +26,7 @@ let scenes = [],
   scarePlayed = false,
   reactionMs = 1500,
   boothName = "Midnight Portrait Booth",
+  showHeaderControls = true,
   adminObjectUrls = [];
 const stage = $("#stage"),
   ctx = stage.getContext("2d"),
@@ -121,6 +122,7 @@ async function loadConfig() {
       const config = await response.json();
       reactionMs = config.reaction_seconds * 1000;
       boothName = config.booth_name;
+      showHeaderControls = config.show_header_controls;
       applyBoothName();
     }
   } catch {}
@@ -130,6 +132,8 @@ function applyBoothName() {
   $("#brand-mark").textContent =
     boothName.trim().charAt(0).toUpperCase() || "P";
   $("#booth-label").textContent = boothName.toUpperCase();
+  $(".header-right").hidden =
+    !showHeaderControls && location.pathname !== "/admin";
   document.title = `${location.pathname === "/admin" ? "Library" : "Booth"} · ${boothName}`;
 }
 function filePrefix() {
@@ -1246,19 +1250,25 @@ async function loadAdminSettings() {
   const settings = await response.json();
   $("#reaction-seconds").value = settings.reaction_seconds;
   $("#booth-name").value = settings.booth_name;
+  $("#show-header-controls").checked = settings.show_header_controls;
   $("#settings").hidden = false;
 }
 async function saveAdminSettings(e) {
   e.preventDefault();
   const seconds = Number($("#reaction-seconds").value),
     name = $("#booth-name").value.trim(),
+    showControls = $("#show-header-controls").checked,
     response = await fetch("/api/admin/settings", {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
         "X-Admin-Pin": $("#pin").value,
       },
-      body: JSON.stringify({ reaction_seconds: seconds, booth_name: name }),
+      body: JSON.stringify({
+        reaction_seconds: seconds,
+        booth_name: name,
+        show_header_controls: showControls,
+      }),
     });
   if (!response.ok) {
     $("#settings-message").textContent =
@@ -1268,6 +1278,7 @@ async function saveAdminSettings(e) {
   const settings = await response.json();
   reactionMs = settings.reaction_seconds * 1000;
   boothName = settings.booth_name;
+  showHeaderControls = settings.show_header_controls;
   applyBoothName();
   $("#settings-message").textContent =
     `Saved “${settings.booth_name}”. Future sessions record for ${settings.reaction_seconds} seconds after the photo.`;

@@ -22,6 +22,7 @@ with sqlite3.connect(DB) as db:
     db.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
     db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('reaction_seconds','1.5')")
     db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('booth_name','Midnight Portrait Booth')")
+    db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('show_header_controls','1')")
 app = FastAPI(title='JumpScare')
 app.mount('/static', StaticFiles(directory=ROOT / 'static'), name='static')
 SCENES = [
@@ -50,6 +51,7 @@ SCENES = [
 class BoothSettings(BaseModel):
     reaction_seconds: float = Field(ge=0, le=30)
     booth_name: str = Field(min_length=1, max_length=40)
+    show_header_controls: bool
 
     @field_validator('booth_name')
     @classmethod
@@ -61,8 +63,12 @@ class BoothSettings(BaseModel):
 
 def get_settings():
     with sqlite3.connect(DB) as db:
-        values = dict(db.execute("SELECT key,value FROM settings WHERE key IN ('reaction_seconds','booth_name')"))
-    return {'reaction_seconds': float(values['reaction_seconds']), 'booth_name': values['booth_name']}
+        values = dict(db.execute("SELECT key,value FROM settings WHERE key IN ('reaction_seconds','booth_name','show_header_controls')"))
+    return {
+        'reaction_seconds': float(values['reaction_seconds']),
+        'booth_name': values['booth_name'],
+        'show_header_controls': values['show_header_controls'] == '1',
+    }
 
 def admin(request: Request):
     if not secrets.compare_digest(request.headers.get('X-Admin-Pin', ''), PIN):
@@ -90,6 +96,7 @@ def update_settings(settings: BoothSettings):
     with sqlite3.connect(DB) as db:
         db.execute("UPDATE settings SET value=? WHERE key='reaction_seconds'", (str(settings.reaction_seconds),))
         db.execute("UPDATE settings SET value=? WHERE key='booth_name'", (settings.booth_name,))
+        db.execute("UPDATE settings SET value=? WHERE key='show_header_controls'", ('1' if settings.show_header_controls else '0',))
     return settings
 
 @app.post('/api/captures')
