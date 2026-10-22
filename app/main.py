@@ -8,7 +8,7 @@ import uuid
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 ROOT = Path(__file__).parent
 DATA = Path(os.environ.get('JUMPSCARE_DATA_DIR', str(ROOT.parent / 'data')))
@@ -21,21 +21,48 @@ with sqlite3.connect(DB) as db:
     db.execute('CREATE TABLE IF NOT EXISTS captures (id TEXT PRIMARY KEY, scene TEXT, created TEXT, video_type TEXT, archived INTEGER DEFAULT 0)')
     db.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
     db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('reaction_seconds','1.5')")
+    db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('booth_name','Midnight Portrait Booth')")
 app = FastAPI(title='JumpScare')
 app.mount('/static', StaticFiles(directory=ROOT / 'static'), name='static')
 SCENES = [
-    {'id':'cemetery','name':'The Forgotten Graveyard','tag':'Something is still awake.','kind':'cemetery','number':'01'},
-    {'id':'forest','name':'Whispering Woods','tag':'You are not alone out here.','kind':'forest','number':'02'},
-    {'id':'manor','name':'Blackwood Manor','tag':'Make yourself at home. Forever.','kind':'manor','number':'03'},
-    {'id':'crypt','name':'The Underground','tag':'Some doors should stay closed.','kind':'crypt','number':'04'},
+    {'id':'cemetery','name':'The Forgotten Graveyard','tag':'Something is still awake.','image':'forgotten-graveyard.webp','ghoul':'grave-warden','sound':'grave','number':'01'},
+    {'id':'forest','name':'Whispering Woods','tag':'You are not alone out here.','image':'whispering-woods.webp','ghoul':'antler-witch','sound':'forest','number':'02'},
+    {'id':'manor','name':'Blackwood Manor','tag':'Make yourself at home. Forever.','image':'blackwood-manor.webp','ghoul':'veiled-widow','sound':'manor','number':'03'},
+    {'id':'crypt','name':'The Underground','tag':'Some doors should stay closed.','image':'underground-crypt.webp','ghoul':'bone-priest','sound':'crypt','number':'04'},
+    {'id':'asylum','name':'Saint Mercy Ward','tag':'Visiting hours never end.','image':'abandoned-asylum.webp','ghoul':'patient-zero','sound':'asylum','number':'05'},
+    {'id':'catacombs','name':'The Sunken Catacombs','tag':'The water remembers every name.','image':'flooded-catacombs.webp','ghoul':'drowned-monk','sound':'catacombs','number':'06'},
+    {'id':'harvest','name':'Harvest Moon','tag':'The field has been waiting.','image':'harvest-field.webp','ghoul':'scarecrow','sound':'harvest','number':'07'},
+    {'id':'chapel','name':'The Frozen Chapel','tag':'No prayer leaves this room.','image':'frozen-chapel.webp','ghoul':'frost-nun','sound':'chapel','number':'08'},
+    {'id':'butcher','name':"The Butcher's Cellar",'tag':'The hooks are still warm.','image':'butcher-cellar.webp','ghoul':'hook-butcher','sound':'butcher','number':'09'},
+    {'id':'nursery','name':'The Nursery','tag':'The rocking stopped by itself.','image':'cursed-nursery.webp','ghoul':'porcelain-child','sound':'nursery','number':'10'},
+    {'id':'carnival','name':'Midnight Carnival','tag':'One final show before closing.','image':'deserted-carnival.webp','ghoul':'grinning-clown','sound':'carnival','number':'11'},
+    {'id':'mine','name':'Black Vein Mine','tag':'Something followed the last crew.','image':'mine-shaft.webp','ghoul':'cave-crawler','sound':'mine','number':'12'},
+    {'id':'village','name':'The Plague Village','tag':'The bell rings for new arrivals.','image':'plague-village.webp','ghoul':'plague-doctor','sound':'village','number':'13'},
+    {'id':'swamp','name':'The Drowned Shrine','tag':'The water is not empty.','image':'swamp-shrine.webp','ghoul':'bog-hag','sound':'swamp','number':'14'},
+    {'id':'shipwreck','name':'The Last Voyage','tag':'All hands are still aboard.','image':'shipwreck-hold.webp','ghoul':'dead-captain','sound':'shipwreck','number':'15'},
+    {'id':'castle','name':'The Fallen Keep','tag':'The guard never abandoned his post.','image':'ruined-castle.webp','ghoul':'armored-revenant','sound':'castle','number':'16'},
+    {'id':'school','name':'After-School','tag':'Class is back in session.','image':'haunted-school.webp','ghoul':'faceless-teacher','sound':'school','number':'17'},
+    {'id':'theater','name':'Final Curtain','tag':'The understudy wants your part.','image':'possessed-theater.webp','ghoul':'mask-phantom','sound':'theater','number':'18'},
+    {'id':'sewer','name':'Below the City','tag':'Do not disturb the nest.','image':'sewer-tunnel.webp','ghoul':'rat-king','sound':'sewer','number':'19'},
+    {'id':'motel','name':'Room 13','tag':'Checkout was a long time ago.','image':'motel-hallway.webp','ghoul':'room-guest','sound':'motel','number':'20'},
 ]
 
 class BoothSettings(BaseModel):
     reaction_seconds: float = Field(ge=0, le=30)
+    booth_name: str = Field(min_length=1, max_length=40)
 
-def get_reaction_seconds():
+    @field_validator('booth_name')
+    @classmethod
+    def clean_booth_name(cls, value: str):
+        value = value.strip()
+        if not value:
+            raise ValueError('Booth name cannot be blank.')
+        return value
+
+def get_settings():
     with sqlite3.connect(DB) as db:
-        return float(db.execute("SELECT value FROM settings WHERE key='reaction_seconds'").fetchone()[0])
+        values = dict(db.execute("SELECT key,value FROM settings WHERE key IN ('reaction_seconds','booth_name')"))
+    return {'reaction_seconds': float(values['reaction_seconds']), 'booth_name': values['booth_name']}
 
 def admin(request: Request):
     if not secrets.compare_digest(request.headers.get('X-Admin-Pin', ''), PIN):
@@ -52,17 +79,18 @@ def scenes():
 
 @app.get('/api/config')
 def config():
-    return {'reaction_seconds': get_reaction_seconds()}
+    return get_settings()
 
 @app.get('/api/admin/settings', dependencies=[Depends(admin)])
 def settings():
-    return {'reaction_seconds': get_reaction_seconds()}
+    return get_settings()
 
 @app.put('/api/admin/settings', dependencies=[Depends(admin)])
 def update_settings(settings: BoothSettings):
     with sqlite3.connect(DB) as db:
         db.execute("UPDATE settings SET value=? WHERE key='reaction_seconds'", (str(settings.reaction_seconds),))
-    return {'reaction_seconds': settings.reaction_seconds}
+        db.execute("UPDATE settings SET value=? WHERE key='booth_name'", (settings.booth_name,))
+    return settings
 
 @app.post('/api/captures')
 async def capture(request: Request, scene: str, kind: str = 'webm'):
