@@ -296,34 +296,37 @@ function playTick(number) {
   osc.start(now);
   osc.stop(now + 0.21);
 }
-const SCARE_SOUNDS = {
-  grave: { voice: "groan", pitch: 72, end: 31, noise: 520, duration: 1.5, pulses: 3 },
-  forest: { voice: "shriek", pitch: 690, end: 175, noise: 2400, duration: 1.2, pulses: 5 },
-  manor: { voice: "moan", pitch: 250, end: 88, noise: 1500, duration: 1.55, pulses: 3 },
-  crypt: { voice: "groan", pitch: 84, end: 34, noise: 680, duration: 1.45, pulses: 2 },
-  asylum: { voice: "shriek", pitch: 760, end: 205, noise: 2900, duration: 1.25, pulses: 6 },
-  catacombs: { voice: "moan", pitch: 205, end: 70, noise: 610, duration: 1.6, pulses: 3 },
-  harvest: { voice: "roar", pitch: 118, end: 39, noise: 1350, duration: 1.35, pulses: 5 },
-  chapel: { voice: "shriek", pitch: 620, end: 145, noise: 2500, duration: 1.35, pulses: 5 },
-  butcher: { voice: "roar", pitch: 104, end: 38, noise: 980, duration: 1.3, pulses: 6 },
-  nursery: { voice: "shriek", pitch: 890, end: 260, noise: 3300, duration: 1.15, pulses: 7 },
-  carnival: { voice: "shriek", pitch: 735, end: 190, noise: 2600, duration: 1.25, pulses: 7 },
-  mine: { voice: "growl", pitch: 92, end: 32, noise: 820, duration: 1.45, pulses: 4 },
-  village: { voice: "groan", pitch: 98, end: 36, noise: 1100, duration: 1.5, pulses: 3 },
-  swamp: { voice: "growl", pitch: 76, end: 27, noise: 540, duration: 1.55, pulses: 5 },
-  shipwreck: { voice: "moan", pitch: 185, end: 56, noise: 920, duration: 1.6, pulses: 4 },
-  castle: { voice: "roar", pitch: 112, end: 41, noise: 1420, duration: 1.4, pulses: 4 },
-  school: { voice: "shriek", pitch: 950, end: 280, noise: 3550, duration: 1.1, pulses: 7 },
-  theater: { voice: "moan", pitch: 285, end: 92, noise: 2100, duration: 1.45, pulses: 4 },
-  sewer: { voice: "roar", pitch: 132, end: 45, noise: 1750, duration: 1.3, pulses: 8 },
-  motel: { voice: "groan", pitch: 88, end: 30, noise: 1350, duration: 1.5, pulses: 3 },
+const CREATURE_SOUNDS = {
+  "grave-warden": { voice: "groan", pitch: 68, peak: 92, end: 30, noise: 470, duration: 1.75, pulses: 3 },
+  "antler-witch": { voice: "howl", pitch: 185, peak: 720, end: 155, noise: 1650, duration: 1.75, pulses: 2 },
+  "veiled-widow": { voice: "moan", pitch: 210, peak: 315, end: 76, noise: 980, duration: 1.85, pulses: 3 },
+  "bone-priest": { voice: "groan", pitch: 82, peak: 126, end: 34, noise: 620, duration: 1.65, pulses: 2 },
+  "patient-zero": { voice: "shriek", pitch: 430, peak: 1120, end: 205, noise: 3050, duration: 1.35, pulses: 6 },
+  "drowned-monk": { voice: "moan", pitch: 155, peak: 235, end: 54, noise: 520, duration: 1.95, pulses: 3 },
+  scarecrow: { voice: "howl", pitch: 125, peak: 510, end: 70, noise: 1380, duration: 1.7, pulses: 4 },
+  "frost-nun": { voice: "shriek", pitch: 380, peak: 980, end: 170, noise: 2720, duration: 1.5, pulses: 5 },
+  "hook-butcher": { voice: "roar", pitch: 108, peak: 168, end: 35, noise: 930, duration: 1.55, pulses: 6 },
+  "porcelain-child": { voice: "screech", pitch: 680, peak: 1540, end: 310, noise: 3650, duration: 1.25, pulses: 7 },
+  "grinning-clown": { voice: "shriek", pitch: 510, peak: 1280, end: 230, noise: 2820, duration: 1.4, pulses: 7 },
+  "cave-crawler": { voice: "screech", pitch: 330, peak: 940, end: 110, noise: 2250, duration: 1.35, pulses: 5 },
+  "plague-doctor": { voice: "hiss", pitch: 145, peak: 290, end: 72, noise: 3100, duration: 1.65, pulses: 4 },
+  "bog-hag": { voice: "growl", pitch: 74, peak: 118, end: 25, noise: 560, duration: 1.8, pulses: 5 },
+  "dead-captain": { voice: "howl", pitch: 120, peak: 440, end: 52, noise: 870, duration: 1.9, pulses: 3 },
+  "armored-revenant": { voice: "roar", pitch: 116, peak: 186, end: 38, noise: 1450, duration: 1.6, pulses: 5 },
+  "faceless-teacher": { voice: "shriek", pitch: 520, peak: 1420, end: 260, noise: 3500, duration: 1.3, pulses: 7 },
+  "mask-phantom": { voice: "moan", pitch: 235, peak: 390, end: 82, noise: 1880, duration: 1.75, pulses: 4 },
+  "rat-king": { voice: "screech", pitch: 470, peak: 1320, end: 185, noise: 2950, duration: 1.25, pulses: 9 },
+  "room-guest": { voice: "groan", pitch: 86, peak: 132, end: 28, noise: 1240, duration: 1.75, pulses: 3 },
 };
 const VOICE_SHAPES = {
-  shriek: { wave: "sawtooth", formants: [1450, 3150], q: 5.5, wobble: 17, noiseQ: 1.8 },
-  groan: { wave: "sawtooth", formants: [310, 760], q: 3.8, wobble: 5.2, noiseQ: 1.1 },
-  moan: { wave: "triangle", formants: [470, 1180], q: 4.5, wobble: 4.1, noiseQ: 1.4 },
-  roar: { wave: "sawtooth", formants: [220, 690], q: 2.9, wobble: 10.5, noiseQ: 0.9 },
-  growl: { wave: "square", formants: [175, 510], q: 3.2, wobble: 13, noiseQ: 0.8 },
+  shriek: { wave: "sawtooth", formants: [1500, 3300], q: 5.8, wobble: 19, noiseQ: 1.9, noiseLevel: 0.82, voiceLevel: 0.74, drive: 48 },
+  screech: { wave: "square", formants: [1900, 4100], q: 6.5, wobble: 25, noiseQ: 2.4, noiseLevel: 0.88, voiceLevel: 0.68, drive: 56 },
+  howl: { wave: "triangle", formants: [620, 1350], q: 5.2, wobble: 6.2, noiseQ: 1.7, noiseLevel: 0.45, voiceLevel: 0.9, drive: 42 },
+  groan: { wave: "sawtooth", formants: [300, 720], q: 3.8, wobble: 5.2, noiseQ: 1.1, noiseLevel: 0.8, voiceLevel: 0.86, drive: 86 },
+  moan: { wave: "triangle", formants: [460, 1120], q: 4.7, wobble: 4.1, noiseQ: 1.4, noiseLevel: 0.52, voiceLevel: 0.92, drive: 52 },
+  roar: { wave: "sawtooth", formants: [210, 650], q: 2.8, wobble: 10.5, noiseQ: 0.9, noiseLevel: 0.95, voiceLevel: 0.88, drive: 96 },
+  growl: { wave: "square", formants: [165, 490], q: 3.1, wobble: 13, noiseQ: 0.8, noiseLevel: 0.88, voiceLevel: 0.83, drive: 92 },
+  hiss: { wave: "triangle", formants: [850, 2600], q: 2.2, wobble: 8, noiseQ: 3.1, noiseLevel: 1, voiceLevel: 0.34, drive: 58 },
 };
 function distortionCurve(amount = 72) {
   const samples = 256,
@@ -336,12 +339,16 @@ function distortionCurve(amount = 72) {
   }
   return curve;
 }
-function playScare(profile = selected?.sound) {
+function playScare(creature = selected?.creature_id || selected?.ghoul) {
   const c = ensureAudio();
   if (!c) return;
-  const sound = SCARE_SOUNDS[profile] || SCARE_SOUNDS.grave,
+  const creatureName = String(creature || "").replace(/^builtin:/, ""),
+    sound =
+      CREATURE_SOUNDS[creatureName] ||
+      CREATURE_SOUNDS[selected?.default_ghoul] ||
+      CREATURE_SOUNDS["grave-warden"],
     shape = VOICE_SHAPES[sound.voice],
-    { pitch, end, noise: noiseStart, duration, pulses } = sound,
+    { pitch, peak, end, noise: noiseStart, duration, pulses } = sound,
     now = c.currentTime,
     buffer = c.createBuffer(
       1,
@@ -375,35 +382,38 @@ function playScare(profile = selected?.sound) {
   );
   filter.Q.value = shape.noiseQ;
   noiseGain.gain.setValueAtTime(0.0001, now);
-  noiseGain.gain.exponentialRampToValueAtTime(
-    sound.voice === "shriek" ? 0.78 : 0.92,
-    now + 0.018,
-  );
+  noiseGain.gain.exponentialRampToValueAtTime(shape.noiseLevel, now + 0.018);
   noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
   carrier.type = shape.wave;
-  harmonic.type = sound.voice === "moan" ? "sine" : "triangle";
+  harmonic.type = ["moan", "howl"].includes(sound.voice)
+    ? "sine"
+    : "triangle";
   carrier.frequency.setValueAtTime(pitch, now);
-  carrier.frequency.exponentialRampToValueAtTime(end, now + duration * 0.78);
+  carrier.frequency.exponentialRampToValueAtTime(
+    peak,
+    now + duration * (sound.voice === "howl" ? 0.48 : 0.12),
+  );
+  carrier.frequency.exponentialRampToValueAtTime(end, now + duration * 0.92);
   harmonic.frequency.setValueAtTime(pitch * 1.51, now);
   harmonic.frequency.exponentialRampToValueAtTime(
-    end * 1.18,
-    now + duration * 0.68,
+    peak * 1.42,
+    now + duration * (sound.voice === "howl" ? 0.52 : 0.14),
   );
+  harmonic.frequency.exponentialRampToValueAtTime(end * 1.18, now + duration * 0.88);
   harmonic.detune.value = -11;
   voiceIn.gain.value = 0.72;
   voiceGain.gain.setValueAtTime(0.0001, now);
-  voiceGain.gain.exponentialRampToValueAtTime(
-    sound.voice === "shriek" ? 0.72 : 0.86,
-    now + 0.014,
-  );
+  voiceGain.gain.exponentialRampToValueAtTime(shape.voiceLevel, now + 0.014);
   voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
   lfo.frequency.value = shape.wobble;
-  lfoDepth.gain.value = sound.voice === "shriek" ? 0.1 : 0.17;
+  lfoDepth.gain.value = ["shriek", "screech"].includes(sound.voice)
+    ? 0.11
+    : 0.18;
   formantA.type = formantB.type = "bandpass";
   formantA.frequency.value = shape.formants[0];
   formantB.frequency.value = shape.formants[1];
   formantA.Q.value = formantB.Q.value = shape.q;
-  distortion.curve = distortionCurve(sound.voice === "shriek" ? 46 : 84);
+  distortion.curve = distortionCurve(shape.drive);
   distortion.oversample = "2x";
   noise.connect(filter).connect(noiseGain).connect(effectsBus);
   carrier.connect(voiceIn);
@@ -419,16 +429,28 @@ function playScare(profile = selected?.sound) {
   for (let i = 0; i < pulses; i++) {
     const strike = c.createOscillator(),
       strikeGain = c.createGain(),
-      at = now + i * 0.075;
-    strike.type = i % 2 ? "square" : "triangle";
-    strike.frequency.setValueAtTime(pitch * (1.4 + i * 0.08), at);
-    strike.frequency.exponentialRampToValueAtTime(Math.max(35, end), at + 0.12);
+      at = now + i * (duration * 0.48) / Math.max(1, pulses - 1),
+      pulseLength = ["howl", "moan"].includes(sound.voice) ? 0.24 : 0.13;
+    strike.type = ["screech", "shriek"].includes(sound.voice)
+      ? "sawtooth"
+      : "triangle";
+    strike.frequency.setValueAtTime(pitch * (1.18 + i * 0.055), at);
+    strike.frequency.exponentialRampToValueAtTime(
+      Math.max(30, end * 1.12),
+      at + pulseLength,
+    );
     strikeGain.gain.setValueAtTime(0.0001, at);
-    strikeGain.gain.exponentialRampToValueAtTime(0.2, at + 0.006);
-    strikeGain.gain.exponentialRampToValueAtTime(0.0001, at + 0.14);
+    strikeGain.gain.exponentialRampToValueAtTime(
+      ["howl", "moan"].includes(sound.voice) ? 0.1 : 0.18,
+      at + 0.012,
+    );
+    strikeGain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      at + pulseLength,
+    );
     strike.connect(strikeGain).connect(effectsBus);
     strike.start(at);
-    strike.stop(at + 0.15);
+    strike.stop(at + pulseLength + 0.01);
   }
   noise.stop(now + duration);
   carrier.stop(now + duration);
@@ -1881,7 +1903,7 @@ $("#settings-form").onsubmit = (e) =>
     for (const scene of scenes) {
       const button = document.createElement("button");
       button.className = "scene-card";
-      button.innerHTML = `<div class="scene-art"><canvas width="480" height="576" aria-label="${scene.name} scene illustration" role="img"></canvas><span class="scene-number">${scene.number} / SCENE</span></div><div class="scene-copy"><h2>${scene.name}</h2><p>${scene.tag}</p></div><div class="scene-enter">Enter scene <span>↗</span></div>`;
+      button.innerHTML = `<div class="scene-art"><canvas width="480" height="576" aria-label="${scene.name} scene illustration" role="img"></canvas></div><div class="scene-copy"><h2>${scene.name}</h2><p>${scene.tag}</p></div>`;
       landscape(button.querySelector("canvas"), scene).catch(() => {});
       button.onclick = () => choose(scene);
       $("#scenes").append(button);

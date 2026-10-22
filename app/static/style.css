@@ -243,21 +243,10 @@ h1 span {
   inset: 0;
   background: linear-gradient(transparent 65%, #101714d9);
 }
-.how b,
-.scene-number {
+.how b {
   font:
     11px ui-monospace,
     monospace;
-}
-.scene-number {
-  position: absolute;
-  top: 15px;
-  left: 16px;
-  color: #d5dfd8;
-  background: #101714b0;
-  padding: 3px 8px;
-  border: 1px solid #ffffff25;
-  border-radius: 4px;
 }
 .scene-copy {
   padding: 19px 18px 20px;
@@ -266,20 +255,6 @@ h1 span {
   font-size: 16px;
   letter-spacing: -0.4px;
   margin: 0 0 5px;
-}
-.scene-enter {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 1px solid var(--border);
-  padding: 12px 18px;
-  color: var(--green);
-  font-size: 12px;
-  font-weight: 650;
-}
-.scene-enter span {
-  font-size: 20px;
-  line-height: 1;
 }
 .how {
   display: flex;
@@ -815,9 +790,6 @@ select {
   }
   .scene-copy p {
     font-size: 11px;
-  }
-  .scene-enter {
-    padding: 10px 12px;
   }
   .how {
     gap: 10px;
