@@ -18,6 +18,8 @@ let scenes = [],
   generation = 0,
   segmenter = null,
   segmentationReady = false,
+  personBounds = null,
+  lastPersonSeen = 0,
   lastSegmentation = 0,
   audioContext = null,
   effectsBus = null,
@@ -41,6 +43,10 @@ const mask = document.createElement("canvas");
 mask.width = 1280;
 mask.height = 720;
 const mc = mask.getContext("2d");
+const displayMask = document.createElement("canvas");
+displayMask.width = 1280;
+displayMask.height = 720;
+const dmc = displayMask.getContext("2d");
 const maskSource = document.createElement("canvas");
 const msc = maskSource.getContext("2d");
 const background = document.createElement("canvas");
@@ -54,6 +60,52 @@ function coverSize() {
     w: video.videoWidth * ratio,
     h: video.videoHeight * ratio,
   };
+}
+function containSize() {
+  const ratio = Math.min(1280 / video.videoWidth, 720 / video.videoHeight);
+  return {
+    x: (1280 - video.videoWidth * ratio) / 2,
+    y: (720 - video.videoHeight * ratio) / 2,
+    w: video.videoWidth * ratio,
+    h: video.videoHeight * ratio,
+  };
+}
+function personComposition() {
+  if (!personBounds) return null;
+  const aspect = personBounds.w / personBounds.h,
+    maxWidth = 1280 * (aspect > 1 ? 0.62 : 0.38),
+    maxHeight = 720 * 0.62,
+    scale = Math.min(
+      1,
+      maxWidth / personBounds.w,
+      maxHeight / personBounds.h,
+    ),
+    width = personBounds.w * scale,
+    height = personBounds.h * scale;
+  return {
+    source: personBounds,
+    x: 640 - width / 2,
+    y: 360 - height / 2 + 22,
+    w: width,
+    h: height,
+  };
+}
+function refreshDisplayMask() {
+  dmc.clearRect(0, 0, 1280, 720);
+  const placement = personComposition();
+  if (!placement) return;
+  const source = placement.source;
+  dmc.drawImage(
+    mask,
+    source.x,
+    source.y,
+    source.w,
+    source.h,
+    placement.x,
+    placement.y,
+    placement.w,
+    placement.h,
+  );
 }
 async function setupSegmenter() {
   if (segmenter) return;
@@ -92,27 +144,76 @@ function updateSegmentation(now) {
       maskSource.height = mpMask.height;
     }
     const pixels = msc.createImageData(mpMask.width, mpMask.height);
+    let minX = mpMask.width,
+      minY = mpMask.height,
+      maxX = -1,
+      maxY = -1;
     for (let i = 0; i < values.length; i++) {
       const p = Math.max(0, Math.min(1, (values[i] - 0.25) / 0.5)),
-        alpha = p * p * (3 - 2 * p);
+        alpha = p * p * (3 - 2 * p),
+        x = i % mpMask.width,
+        y = Math.floor(i / mpMask.width);
       pixels.data[i * 4] =
         pixels.data[i * 4 + 1] =
         pixels.data[i * 4 + 2] =
           255;
       pixels.data[i * 4 + 3] = Math.round(alpha * 255);
+      if (alpha > 0.18) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
     }
     msc.putImageData(pixels, 0, 0);
-    const r = coverSize();
-    mc.clearRect(0, 0, 1280, 720);
-    mc.save();
-    mc.translate(1280, 0);
-    mc.scale(-1, 1);
-    mc.drawImage(maskSource, r.x, r.y, r.w, r.h);
-    mc.restore();
-    segmentationReady = true;
+    const r = containSize();
+    if (maxX >= minX && maxY >= minY) {
+      mc.clearRect(0, 0, 1280, 720);
+      mc.save();
+      mc.translate(1280, 0);
+      mc.scale(-1, 1);
+      mc.drawImage(maskSource, r.x, r.y, r.w, r.h);
+      mc.restore();
+      const rawLeft = r.x + (minX / mpMask.width) * r.w,
+        rawRight = r.x + ((maxX + 1) / mpMask.width) * r.w,
+        rawTop = r.y + (minY / mpMask.height) * r.h,
+        rawBottom = r.y + ((maxY + 1) / mpMask.height) * r.h,
+        padding = 28,
+        left = Math.max(0, 1280 - rawRight - padding),
+        top = Math.max(0, rawTop - padding),
+        right = Math.min(1280, 1280 - rawLeft + padding),
+        bottom = Math.min(720, rawBottom + padding);
+      const detectedBounds = {
+        x: left,
+        y: top,
+        w: right - left,
+        h: bottom - top,
+      };
+      if (personBounds) {
+        const follow = 0.28;
+        personBounds = {
+          x: personBounds.x + (detectedBounds.x - personBounds.x) * follow,
+          y: personBounds.y + (detectedBounds.y - personBounds.y) * follow,
+          w: personBounds.w + (detectedBounds.w - personBounds.w) * follow,
+          h: personBounds.h + (detectedBounds.h - personBounds.h) * follow,
+        };
+      } else personBounds = detectedBounds;
+      lastPersonSeen = now;
+      segmentationReady = true;
+      refreshDisplayMask();
+    } else if (now - lastPersonSeen > 500) {
+      personBounds = null;
+      segmentationReady = false;
+      mc.clearRect(0, 0, 1280, 720);
+      dmc.clearRect(0, 0, 1280, 720);
+    }
     result.close();
   } catch (e) {
     $("#cutout").checked = false;
+    personBounds = null;
+    lastPersonSeen = 0;
+    mc.clearRect(0, 0, 1280, 720);
+    dmc.clearRect(0, 0, 1280, 720);
     $("#error").textContent =
       `Person cutout stopped: ${e.message} The full camera image will be used.`;
   }
@@ -566,7 +667,7 @@ function maskCoverage(x, y, width, height) {
     right = Math.min(mask.width, Math.ceil(x + width)),
     bottom = Math.min(mask.height, Math.ceil(y + height));
   if (right <= left || bottom <= top) return 0;
-  const pixels = mc.getImageData(left, top, right - left, bottom - top).data,
+  const pixels = dmc.getImageData(left, top, right - left, bottom - top).data,
     sampleStep = 12;
   let occupied = 0,
     samples = 0;
@@ -905,23 +1006,38 @@ function draw(now) {
       recording && remaining <= 250
         ? Math.min(1, (250 - remaining) / 200)
         : null,
-    hasPersonCutout = $("#cutout").checked && segmentationReady;
+    hasPersonCutout =
+      $("#cutout").checked && segmentationReady && personBounds;
   if (scareProgress !== null && hasPersonCutout)
     ghoul(scareProgress, selected);
   if (stream && video.readyState >= 2) {
-    const r = coverSize();
+    const r = hasPersonCutout ? containSize() : coverSize();
     lc.clearRect(0, 0, 1280, 720);
     lc.save();
     lc.translate(1280, 0);
     lc.scale(-1, 1);
     lc.drawImage(video, r.x, r.y, r.w, r.h);
     lc.restore();
-    if ($("#cutout").checked && segmentationReady) {
+    if (hasPersonCutout) {
       lc.globalCompositeOperation = "destination-in";
       lc.drawImage(mask, 0, 0);
       lc.globalCompositeOperation = "source-over";
     }
-    ctx.drawImage(layer, 0, 0);
+    if (hasPersonCutout) {
+      const placement = personComposition(),
+        source = placement.source;
+      ctx.drawImage(
+        layer,
+        source.x,
+        source.y,
+        source.w,
+        source.h,
+        placement.x,
+        placement.y,
+        placement.w,
+        placement.h,
+      );
+    } else ctx.drawImage(layer, 0, 0);
   }
   if (scareProgress !== null && !hasPersonCutout)
     ghoul(scareProgress, selected);
@@ -957,6 +1073,9 @@ async function choose(scene) {
   selected = scene;
   generation++;
   segmentationReady = false;
+  personBounds = null;
+  lastPersonSeen = 0;
+  dmc.clearRect(0, 0, 1280, 720);
   $("#menu").hidden = true;
   $("#booth").hidden = false;
   $("#scene-name").textContent = scene.name;
@@ -1014,6 +1133,9 @@ function home() {
   stream = null;
   video.srcObject = null;
   segmentationReady = false;
+  personBounds = null;
+  lastPersonSeen = 0;
+  dmc.clearRect(0, 0, 1280, 720);
   $("#booth").hidden = true;
   $("#menu").hidden = false;
   $("#instruction").textContent = "Your portrait is ready.";
