@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Booth · Midnight Portrait Booth</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/style.css?v=tighter-menu-spacing-1" />
+    <link rel="stylesheet" href="/static/style.css?v=admin-creature-library-1" />
   </head>
   <body>
     <header>
@@ -128,10 +128,41 @@
         </form>
         <p id="settings-message" role="status"></p>
       </section>
+      <section id="creature-settings" hidden>
+        <h2>Creature library &amp; scene assignments</h2>
+        <p class="admin-help">
+          Upload a PNG, WebP, or JPEG up to 12 MB. A transparent image works
+          best for the jump-scare overlay.
+        </p>
+        <form id="creature-upload">
+          <label
+            >Creature name
+            <input
+              id="creature-name"
+              type="text"
+              maxlength="60"
+              required
+              autocomplete="off"
+          /></label>
+          <label
+            >Creature image
+            <input
+              id="creature-file"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              required
+          /></label>
+          <button class="primary">Add creature</button>
+        </form>
+        <p id="creature-message" role="status"></p>
+        <div id="custom-creatures"></div>
+        <h3>Creature used by each scene</h3>
+        <div id="scene-creature-selectors"></div>
+      </section>
       <p id="admin-message" role="status"></p>
       <div id="library"></div>
     </main>
     <video id="camera" autoplay playsinline muted hidden></video>
-    <script type="module" src="/static/app.js?v=smart-person-framing-1"></script>
+    <script type="module" src="/static/app.js?v=admin-creature-library-1"></script>
   </body>
 </html>

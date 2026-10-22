@@ -627,13 +627,15 @@ function landscape(canvas, kind) {
 }
 const creatureImages = new Map();
 function loadCreature(scene) {
-  if (!scene?.ghoul) return Promise.resolve(null);
-  let image = creatureImages.get(scene.ghoul);
+  const creatureId = scene?.creature_id || scene?.ghoul;
+  if (!creatureId) return Promise.resolve(null);
+  let image = creatureImages.get(creatureId);
   if (!image) {
     image = new Image();
     image.decoding = "async";
-    image.src = `/static/creatures/${scene.ghoul}.webp`;
-    creatureImages.set(scene.ghoul, image);
+    image.src =
+      scene.creature_src || `/static/creatures/${scene.ghoul}.webp`;
+    creatureImages.set(creatureId, image);
   }
   if (image.complete && image.naturalWidth) return Promise.resolve(image);
   return image.decode().then(() => image);
@@ -680,7 +682,8 @@ function maskCoverage(x, y, width, height) {
   return samples ? occupied / samples : 0;
 }
 function chooseScarePlacement(image, scene) {
-  const low = scene.ghoul === "cave-crawler" || scene.ghoul === "rat-king",
+  const defaultGhoul = scene.default_ghoul || scene.ghoul,
+    low = defaultGhoul === "cave-crawler" || defaultGhoul === "rat-king",
     sideHeight = low ? 570 : 720,
     cornerHeight = low ? 500 : 610,
     candidates = [
@@ -705,7 +708,7 @@ function chooseScarePlacement(image, scene) {
   return candidates[0];
 }
 function ghoul(progress, scene = selected) {
-  const image = creatureImages.get(scene?.ghoul);
+  const image = creatureImages.get(scene?.creature_id || scene?.ghoul);
   if (image?.complete && image.naturalWidth) {
     const eased = 1 - Math.pow(1 - progress, 3),
       placement =
@@ -725,7 +728,8 @@ function ghoul(progress, scene = selected) {
     return;
   }
   const [skin, cloth, glow, feature] =
-    GHOUL_STYLES[scene?.ghoul] || GHOUL_STYLES["grave-warden"];
+    GHOUL_STYLES[scene?.default_ghoul || scene?.ghoul] ||
+    GHOUL_STYLES["grave-warden"];
   ctx.save();
   const low = feature === "crawler" || feature === "rats";
   ctx.translate(low ? 760 : 850, (low ? 540 : 380) + (1 - progress) * 330);
@@ -1496,6 +1500,152 @@ async function library(e) {
     $("#library").append(card);
   }
 }
+function creatureOption(item) {
+  const option = document.createElement("option");
+  option.value = item.id;
+  option.textContent = item.name;
+  option.dataset.src = item.src;
+  return option;
+}
+async function refreshSceneData() {
+  const response = await fetch("/api/scenes");
+  if (!response.ok) throw Error("Could not refresh scene assignments.");
+  scenes = await response.json();
+}
+async function loadCreatureAdmin() {
+  const response = await fetch("/api/admin/creatures", {
+    headers: { "X-Admin-Pin": $("#pin").value },
+  });
+  if (!response.ok) return;
+  const catalog = await response.json(),
+    allCreatures = [...catalog.builtins, ...catalog.custom],
+    customGrid = $("#custom-creatures"),
+    assignments = $("#scene-creature-selectors");
+  customGrid.replaceChildren();
+  assignments.replaceChildren();
+  if (!catalog.custom.length) {
+    const empty = document.createElement("p");
+    empty.className = "admin-help";
+    empty.textContent = "No custom creatures uploaded yet.";
+    customGrid.append(empty);
+  }
+  for (const creature of catalog.custom) {
+    const card = document.createElement("article"),
+      image = document.createElement("img"),
+      name = document.createElement("strong"),
+      remove = document.createElement("button");
+    card.className = "custom-creature";
+    image.src = creature.src;
+    image.alt = `${creature.name} custom creature preview`;
+    name.textContent = creature.name;
+    remove.type = "button";
+    remove.className = "secondary";
+    remove.textContent = "Delete";
+    remove.onclick = async () => {
+      if (!confirm(`Delete “${creature.name}”? Scenes using it will return to their defaults.`))
+        return;
+      const deletion = await fetch(
+        `/api/admin/creatures/${creature.id.replace("custom:", "")}`,
+        {
+          method: "DELETE",
+          headers: { "X-Admin-Pin": $("#pin").value },
+        },
+      );
+      if (!deletion.ok) {
+        $("#creature-message").textContent = "That creature could not be deleted.";
+        return;
+      }
+      await refreshSceneData();
+      await loadCreatureAdmin();
+      $("#creature-message").textContent = `Deleted “${creature.name}”.`;
+    };
+    card.append(image, name, remove);
+    customGrid.append(card);
+  }
+  for (const scene of scenes) {
+    const row = document.createElement("article"),
+      preview = document.createElement("img"),
+      label = document.createElement("label"),
+      title = document.createElement("strong"),
+      select = document.createElement("select"),
+      defaultId = `builtin:${scene.default_ghoul}`,
+      defaultCreature = allCreatures.find((item) => item.id === defaultId),
+      defaultOption = document.createElement("option"),
+      builtins = document.createElement("optgroup"),
+      custom = document.createElement("optgroup"),
+      assigned = catalog.assignments[scene.id] || "default",
+      selectedId = assigned === "default" ? defaultId : assigned;
+    row.className = "scene-creature-row";
+    preview.src =
+      allCreatures.find((item) => item.id === selectedId)?.src ||
+      defaultCreature.src;
+    preview.alt = `Creature selected for ${scene.name}`;
+    title.textContent = scene.name;
+    defaultOption.value = "default";
+    defaultOption.textContent = `Default — ${defaultCreature.name}`;
+    defaultOption.dataset.src = defaultCreature.src;
+    builtins.label = "Built-in creatures";
+    custom.label = "Custom creatures";
+    catalog.builtins.forEach((item) => builtins.append(creatureOption(item)));
+    catalog.custom.forEach((item) => custom.append(creatureOption(item)));
+    select.append(defaultOption, builtins);
+    if (catalog.custom.length) select.append(custom);
+    select.value = assigned;
+    select.setAttribute("aria-label", `Creature for ${scene.name}`);
+    select.onchange = async () => {
+      select.disabled = true;
+      const save = await fetch(`/api/admin/scenes/${scene.id}/creature`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Admin-Pin": $("#pin").value,
+        },
+        body: JSON.stringify({ creature_id: select.value }),
+      });
+      select.disabled = false;
+      if (!save.ok) {
+        $("#creature-message").textContent =
+          `Could not change the creature for ${scene.name}.`;
+        return;
+      }
+      preview.src = select.selectedOptions[0].dataset.src;
+      await refreshSceneData();
+      $("#creature-message").textContent =
+        `Saved ${select.selectedOptions[0].textContent} for ${scene.name}.`;
+    };
+    label.append(title, select);
+    row.append(preview, label);
+    assignments.append(row);
+  }
+  $("#creature-settings").hidden = false;
+}
+async function uploadCreature(e) {
+  e.preventDefault();
+  const name = $("#creature-name").value.trim(),
+    file = $("#creature-file").files[0];
+  if (!name || !file) return;
+  $("#creature-message").textContent = "Uploading creature…";
+  const response = await fetch(
+    `/api/admin/creatures?name=${encodeURIComponent(name)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "X-Admin-Pin": $("#pin").value,
+      },
+      body: file,
+    },
+  );
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    $("#creature-message").textContent =
+      detail?.detail || "Creature upload failed.";
+    return;
+  }
+  $("#creature-upload").reset();
+  await loadCreatureAdmin();
+  $("#creature-message").textContent = `Added “${name}”. It is now available to every scene.`;
+}
 async function loadAdminSettings() {
   const response = await fetch("/api/admin/settings", {
     headers: { "X-Admin-Pin": $("#pin").value },
@@ -1539,9 +1689,13 @@ async function saveAdminSettings(e) {
 }
 $("#login").onsubmit = (e) => {
   library(e)
-    .then(loadAdminSettings)
+    .then(() => Promise.all([loadAdminSettings(), loadCreatureAdmin()]))
     .catch((e) => ($("#admin-message").textContent = e.message));
 };
+$("#creature-upload").onsubmit = (e) =>
+  uploadCreature(e).catch(
+    (e) => ($("#creature-message").textContent = e.message),
+  );
 $("#settings-form").onsubmit = (e) =>
   saveAdminSettings(e).catch(
     (e) => ($("#settings-message").textContent = e.message),

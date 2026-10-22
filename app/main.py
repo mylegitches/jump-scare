@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime, timezone
+from io import BytesIO
 import json
 import os
 import secrets
@@ -9,6 +10,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
+from PIL import Image, UnidentifiedImageError
 
 ROOT = Path(__file__).parent
 DATA = Path(os.environ.get('JUMPSCARE_DATA_DIR', str(ROOT.parent / 'data')))
@@ -17,12 +19,16 @@ PIN = os.environ.get('JUMPSCARE_ADMIN_PIN') or secrets.token_urlsafe(12)
 if not os.environ.get('JUMPSCARE_ADMIN_PIN'):
     print(f'JumpScare temporary admin PIN: {PIN}', flush=True)
 DB = DATA / 'recordings.sqlite3'
+CUSTOM_CREATURES = DATA / 'creatures'
+CUSTOM_CREATURES.mkdir(parents=True, exist_ok=True)
 with sqlite3.connect(DB) as db:
     db.execute('CREATE TABLE IF NOT EXISTS captures (id TEXT PRIMARY KEY, scene TEXT, created TEXT, video_type TEXT, archived INTEGER DEFAULT 0)')
     db.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
     db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('reaction_seconds','1.5')")
     db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('booth_name','Midnight Portrait Booth')")
     db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('show_header_controls','1')")
+    db.execute('CREATE TABLE IF NOT EXISTS custom_creatures (id TEXT PRIMARY KEY, name TEXT NOT NULL, filename TEXT NOT NULL, content_type TEXT NOT NULL, created TEXT NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS scene_creatures (scene TEXT PRIMARY KEY, creature_id TEXT NOT NULL)')
 app = FastAPI(title='JumpScare')
 app.mount('/static', StaticFiles(directory=ROOT / 'static'), name='static')
 SCENES = [
@@ -61,6 +67,9 @@ class BoothSettings(BaseModel):
             raise ValueError('Booth name cannot be blank.')
         return value
 
+class CreatureAssignment(BaseModel):
+    creature_id: str = Field(min_length=1, max_length=80)
+
 def get_settings():
     with sqlite3.connect(DB) as db:
         values = dict(db.execute("SELECT key,value FROM settings WHERE key IN ('reaction_seconds','booth_name','show_header_controls')"))
@@ -79,9 +88,53 @@ def admin(request: Request):
 def index():
     return FileResponse(ROOT / 'static/index.html')
 
+def creature_name(creature_id: str):
+    return ' '.join(word.capitalize() for word in creature_id.split('-'))
+
+def creature_catalog():
+    builtins = [
+        {
+            'id': f"builtin:{scene['ghoul']}",
+            'name': creature_name(scene['ghoul']),
+            'src': f"/static/creatures/{scene['ghoul']}.webp",
+            'builtin': True,
+        }
+        for scene in SCENES
+    ]
+    with sqlite3.connect(DB) as db:
+        db.row_factory = sqlite3.Row
+        custom = [
+            {
+                'id': f"custom:{row['id']}",
+                'name': row['name'],
+                'src': f"/api/creatures/{row['id']}",
+                'builtin': False,
+            }
+            for row in db.execute('SELECT id,name FROM custom_creatures ORDER BY created DESC')
+        ]
+    return builtins, custom
+
+def resolved_scenes():
+    with sqlite3.connect(DB) as db:
+        assignments = dict(db.execute('SELECT scene,creature_id FROM scene_creatures'))
+    builtins, custom = creature_catalog()
+    creatures = {item['id']: item for item in builtins + custom}
+    output = []
+    for base in SCENES:
+        default_id = f"builtin:{base['ghoul']}"
+        creature_id = assignments.get(base['id'], default_id)
+        creature = creatures.get(creature_id, creatures[default_id])
+        output.append(base | {
+            'ghoul': creature['id'],
+            'default_ghoul': base['ghoul'],
+            'creature_id': creature['id'],
+            'creature_src': creature['src'],
+        })
+    return output
+
 @app.get('/api/scenes')
 def scenes():
-    return SCENES
+    return resolved_scenes()
 
 @app.get('/api/config')
 def config():
@@ -102,6 +155,106 @@ def update_settings(settings: BoothSettings):
         db.execute("UPDATE settings SET value=? WHERE key='booth_name'", (settings.booth_name,))
         db.execute("UPDATE settings SET value=? WHERE key='show_header_controls'", ('1' if settings.show_header_controls else '0',))
     return settings
+
+@app.get('/api/admin/creatures', dependencies=[Depends(admin)])
+def creatures_admin():
+    builtins, custom = creature_catalog()
+    with sqlite3.connect(DB) as db:
+        assignments = dict(db.execute('SELECT scene,creature_id FROM scene_creatures'))
+    return {'builtins': builtins, 'custom': custom, 'assignments': assignments}
+
+@app.post('/api/admin/creatures', dependencies=[Depends(admin)])
+async def upload_creature(request: Request, name: str):
+    name = name.strip()
+    if not name or len(name) > 60:
+        raise HTTPException(422, 'Use a creature name from 1 to 60 characters.')
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > 12 * 1024 * 1024:
+            raise HTTPException(413, 'Creature image exceeds 12 MB.')
+    signatures = [
+        ('png', 'image/png', body.startswith(b'\x89PNG\r\n\x1a\n')),
+        ('jpg', 'image/jpeg', body.startswith(b'\xff\xd8\xff')),
+        ('webp', 'image/webp', len(body) >= 12 and body[:4] == b'RIFF' and body[8:12] == b'WEBP'),
+    ]
+    match = next(((ext, content_type) for ext, content_type, valid in signatures if valid), None)
+    if not match:
+        raise HTTPException(400, 'Upload a PNG, JPEG, or WebP image.')
+    try:
+        with Image.open(BytesIO(body)) as image:
+            width, height = image.size
+            image.verify()
+        if width < 64 or height < 64 or width > 4096 or height > 4096:
+            raise HTTPException(400, 'Creature images must be from 64 to 4096 pixels on each side.')
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(400, 'The uploaded creature image is damaged or unreadable.')
+    creature_id = uuid.uuid4().hex
+    extension, content_type = match
+    filename = f'{creature_id}.{extension}'
+    target = CUSTOM_CREATURES / filename
+    with target.open('xb') as output:
+        output.write(body)
+    try:
+        with sqlite3.connect(DB) as db:
+            db.execute(
+                'INSERT INTO custom_creatures(id,name,filename,content_type,created) VALUES(?,?,?,?,?)',
+                (creature_id, name, filename, content_type, datetime.now(timezone.utc).isoformat()),
+            )
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
+    return {'id': f'custom:{creature_id}', 'name': name, 'src': f'/api/creatures/{creature_id}', 'builtin': False}
+
+@app.delete('/api/admin/creatures/{creature_id}', dependencies=[Depends(admin)])
+def delete_creature(creature_id: str):
+    if len(creature_id) != 32 or any(c not in '0123456789abcdef' for c in creature_id):
+        raise HTTPException(404)
+    with sqlite3.connect(DB) as db:
+        row = db.execute('SELECT filename FROM custom_creatures WHERE id=?', (creature_id,)).fetchone()
+        if not row:
+            raise HTTPException(404)
+        db.execute('DELETE FROM scene_creatures WHERE creature_id=?', (f'custom:{creature_id}',))
+        db.execute('DELETE FROM custom_creatures WHERE id=?', (creature_id,))
+    (CUSTOM_CREATURES / row[0]).unlink(missing_ok=True)
+    return {'deleted': True}
+
+@app.put('/api/admin/scenes/{scene_id}/creature', dependencies=[Depends(admin)])
+def assign_creature(scene_id: str, assignment: CreatureAssignment):
+    scene = next((item for item in SCENES if item['id'] == scene_id), None)
+    if not scene:
+        raise HTTPException(404, 'Unknown scene.')
+    creature_id = assignment.creature_id
+    with sqlite3.connect(DB) as db:
+        if creature_id == 'default':
+            db.execute('DELETE FROM scene_creatures WHERE scene=?', (scene_id,))
+            selected = f"builtin:{scene['ghoul']}"
+        else:
+            builtin_ids = {f"builtin:{item['ghoul']}" for item in SCENES}
+            custom_exists = creature_id.startswith('custom:') and db.execute(
+                'SELECT 1 FROM custom_creatures WHERE id=?', (creature_id.removeprefix('custom:'),)
+            ).fetchone()
+            if creature_id not in builtin_ids and not custom_exists:
+                raise HTTPException(400, 'Unknown creature.')
+            db.execute(
+                'INSERT INTO scene_creatures(scene,creature_id) VALUES(?,?) ON CONFLICT(scene) DO UPDATE SET creature_id=excluded.creature_id',
+                (scene_id, creature_id),
+            )
+            selected = creature_id
+    return {'scene': scene_id, 'creature_id': selected}
+
+@app.get('/api/creatures/{creature_id}')
+def custom_creature(creature_id: str):
+    if len(creature_id) != 32 or any(c not in '0123456789abcdef' for c in creature_id):
+        raise HTTPException(404)
+    with sqlite3.connect(DB) as db:
+        row = db.execute('SELECT filename,content_type FROM custom_creatures WHERE id=?', (creature_id,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    path = CUSTOM_CREATURES / row[0]
+    if not path.is_file():
+        raise HTTPException(404)
+    return FileResponse(path, media_type=row[1])
 
 @app.post('/api/captures')
 async def capture(request: Request, scene: str, kind: str = 'webm'):
