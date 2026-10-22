@@ -1,0 +1,13 @@
+services:
+  photobooth-jump-scare:
+    build: .
+    container_name: photobooth-jump-scare
+    ports:
+      - "8666:8666"
+    volumes:
+      - ./data:/data
+    environment:
+      JUMPSCARE_ADMIN_PIN: ${PHOTOBOOTH_ADMIN_PIN:-8765}
+      JUMPSCARE_DATA_DIR: /data
+      TZ: ${TZ:-America/Chicago}
+    restart: unless-stopped

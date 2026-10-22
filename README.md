@@ -2,13 +2,17 @@
 
 A local-first, touchscreen photo booth built with Python, FastAPI, and vanilla HTML/CSS/JS. Scene selection → camera → three-second countdown → scare → photo and reaction video → next guest.
 
-## Start on Windows
+## Run with Docker
 
-1. Install Python 3.10 or later.
-2. Double-click `run.bat` and open `http://localhost:8765` in current Microsoft Edge. The server listens on port 8765 on all network interfaces.
-3. Allow camera access. Open `/admin` and enter the PIN printed in the server console, or set `JUMPSCARE_ADMIN_PIN` before launching.
+1. Copy `.env.example` to `.env` and set a strong `PHOTOBOOTH_ADMIN_PIN`.
+2. Run `docker compose up --build -d`.
+3. Open `http://localhost:8666`. The admin page is at `/admin`.
 
-Other platforms: `python -m pip install -r requirements.txt`, then `python -m uvicorn app.main:app --host 127.0.0.1 --port 8765`.
+The image listens on port `8666`. Compose mounts `./data` at `/data`, preserving photos, recordings, settings, SQLite metadata, and the audit log across container rebuilds. The image has a health check at `/api/health` and trusts reverse-proxy forwarding headers.
+
+## Homelab deployment
+
+The NAS Compose service is named `photobooth-jump-scare`, publishes `8666:8666`, and persists data in `/volume1/docker/homelab/photobooth-jump-scare`. Source is built from this Git repository. Put the admin PIN in the homelab Compose environment as `PHOTOBOOTH_ADMIN_PIN`; the service currently falls back to `8765` when it is not set.
 
 ## Booth operation
 
@@ -22,7 +26,7 @@ Twenty original, locally bundled photorealistic horror environments are included
 
 `/admin` requires a PIN for listing, downloading, and archiving media. Its settings panel controls the neutral public booth name shown to guests, the post-photo reaction-recording duration, and whether the guest menu shows its local-status, fullscreen, and admin controls. The admin page always retains those controls so hiding them cannot lock an operator out. The default name is “Midnight Portrait Booth,” so the scare is not advertised. Each recording includes a frame picker for timeline scrubbing, one-frame-at-a-time stepping at the booth's 30 FPS capture rate, collecting several candidate expressions, and exporting selected frames as JPEG photos. Set a stable PIN using the `JUMPSCARE_ADMIN_PIN` environment variable; otherwise a random PIN is printed each time the process starts. The PIN is held in browser form memory only. Files stay in `data/` (or `JUMPSCARE_DATA_DIR`): JPEG photos, WebM/MP4 recordings, SQLite metadata, and an archive audit log. Archive hides items without deleting files. Restore an archived entry by setting its SQLite `archived` column to zero. Back up the entire data directory together.
 
-The Windows launcher binds to all network interfaces on port 8765. Camera access works on localhost; remote tablets require trusted HTTPS. The guest upload endpoints deliberately require no PIN so unattended guests can save their session. Do not expose this service to the public internet. No cloud uploads, telemetry, automatic retention, or hard deletion are included.
+The container publishes the app on port 8666. Camera access works on localhost; remote tablets require trusted HTTPS, normally supplied by the homelab reverse proxy. The guest upload endpoints deliberately require no PIN so unattended guests can save their session. Do not expose the raw port to the public internet. No cloud uploads, telemetry, automatic retention, or hard deletion are included.
 
 ## Design
 

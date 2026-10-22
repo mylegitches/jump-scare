@@ -87,6 +87,10 @@ def scenes():
 def config():
     return get_settings()
 
+@app.get('/api/health')
+def health():
+    return {'status': 'ok'}
+
 @app.get('/api/admin/settings', dependencies=[Depends(admin)])
 def settings():
     return get_settings()

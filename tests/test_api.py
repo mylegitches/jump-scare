@@ -13,6 +13,7 @@ class BoothTests(unittest.TestCase):
 
     def test_capture_admin_and_archive(self):
         self.assertEqual(self.client.get('/').status_code, 200)
+        self.assertEqual(self.client.get('/api/health').json(), {'status': 'ok'})
         scenes = self.client.get('/api/scenes').json()
         self.assertEqual(len(scenes), 20)
         self.assertEqual(len({scene['ghoul'] for scene in scenes}), 20)
