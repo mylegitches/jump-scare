@@ -1010,6 +1010,13 @@ select {
   border-radius: 12px;
   background: #fff;
 }
+.share-card > a {
+  display: inline-block;
+  border-radius: 12px;
+}
+.share-card > a:focus-visible {
+  outline-color: #fff7df;
+}
 .share-card p { color: var(--muted); }
 .share-card strong { display: block; color: var(--green); font-size: 18px; }
 @media (orientation: portrait) and (max-width: 900px) {

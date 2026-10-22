@@ -4,6 +4,9 @@ import {
 } from "/static/vendor/tasks-vision/vision_bundle.mjs";
 ("use strict");
 const $ = (s) => document.querySelector(s);
+const isIOSDevice =
+  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 let scenes = [],
   selected = null,
   stream = null,
@@ -280,7 +283,12 @@ function ensureAudio() {
   return audioContext;
 }
 function playTick(number) {
-  const c = ensureAudio();
+  let c;
+  try {
+    c = ensureAudio();
+  } catch (_) {
+    return;
+  }
   if (!c) return;
   const now = c.currentTime,
     osc = c.createOscillator(),
@@ -504,12 +512,15 @@ function loadRecordedCreatureSound(scene = selected) {
   return entry;
 }
 function playRecordedScare() {
-  const c = ensureAudio();
-  if (!c) return;
   const entry = loadRecordedCreatureSound();
-  if (!entry.source) {
-    entry.source = c.createMediaElementSource(entry.audio);
-    entry.source.connect(effectsBus);
+  try {
+    const c = isIOSDevice ? null : ensureAudio();
+    if (c && !entry.source) {
+      entry.source = c.createMediaElementSource(entry.audio);
+      entry.source.connect(effectsBus);
+    }
+  } catch (_) {
+    // Safari can reject MediaElementSource while still allowing direct playback.
   }
   entry.audio.pause();
   entry.audio.currentTime = 0;
@@ -1124,9 +1135,33 @@ function drawCountdownOnVideo(number, now) {
   ctx.fillText(String(number), -7, -8);
   ctx.restore();
 }
+function drawPosePromptOnVideo(now) {
+  const pulse = 1 + Math.sin(now / 170) * 0.018;
+  ctx.save();
+  ctx.translate(640, 360);
+  ctx.scale(pulse, pulse);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "900 82px Inter, ui-sans-serif, system-ui, sans-serif";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 18;
+  ctx.strokeStyle = "rgba(0,0,0,.88)";
+  ctx.shadowColor = "rgba(0,0,0,.9)";
+  ctx.shadowBlur = 28;
+  ctx.strokeText("Pose for your photo!", 0, 0);
+  ctx.fillStyle = "#fff7df";
+  ctx.fillText("Pose for your photo!", 0, 0);
+  ctx.restore();
+}
+const POSE_PROMPT_MS = 1400,
+  COUNTDOWN_MS = 3000;
 function draw(now) {
   ctx.drawImage(background, 0, 0);
-  const remaining = recording ? 3000 - (now - started) : 3000;
+  const countdownElapsed = recording ? now - started - POSE_PROMPT_MS : 0,
+    remaining = recording
+      ? COUNTDOWN_MS - countdownElapsed
+      : COUNTDOWN_MS,
+    posePromptActive = recording && countdownElapsed < 0;
   if (stream && video.readyState >= 2) updateSegmentation(now);
   const scareProgress =
       recording && remaining <= 250
@@ -1168,8 +1203,12 @@ function draw(now) {
   if (scareProgress !== null && !hasPersonCutout)
     ghoul(scareProgress, selected);
   if (recording) {
-    const count = remaining > 0 ? Math.ceil(remaining / 1000) : 0;
-    if (count) drawCountdownOnVideo(count, now);
+    const count =
+      !posePromptActive && remaining > 0
+        ? Math.ceil(remaining / 1000)
+        : 0;
+    if (posePromptActive) drawPosePromptOnVideo(now);
+    else if (count) drawCountdownOnVideo(count, now);
     $("#countdown").textContent = count || "";
     if (count && count !== lastCountdown) {
       lastCountdown = count;
@@ -1210,6 +1249,7 @@ async function choose(scene) {
   $("#error").textContent = "";
   $("#go").hidden = false;
   $("#go").disabled = true;
+    $("#go").querySelector("span").textContent = "GO!";
   const sceneReady = landscape(background, scene),
     creatureReady = loadCreature(scene);
   if (!document.fullscreenElement)
@@ -1243,10 +1283,19 @@ async function choose(scene) {
       throw Error("This browser cannot record video. Update Safari, Chrome, or Edge and try again.");
     if ($("#cutout").checked) {
       $("#camera-status").textContent = "Preparing person cutout…";
-      await setupSegmenter();
-      updateSegmentation(performance.now());
+      try {
+        await setupSegmenter();
+        updateSegmentation(performance.now());
+      } catch (_) {
+        $("#cutout").checked = false;
+        segmentationReady = false;
+        $("#hint").textContent =
+          "Person cutout is unavailable on this device; the booth will still work.";
+      }
     }
-    $("#camera-status").textContent = "● Camera + microphone ready";
+    $("#camera-status").textContent = $("#cutout").checked
+      ? "● Camera + microphone ready"
+      : "● Camera ready · compatibility mode";
     $("#go").disabled = false;
   } catch (e) {
     $("#error").textContent =
@@ -1270,12 +1319,17 @@ function home() {
   $("#back").disabled = false;
   $("#cutout").disabled = false;
   $("#go").hidden = false;
+  $("#go").disabled = false;
+  $("#go").querySelector("span").textContent = "GO!";
   $("#retry").hidden = true;
   $("#share-overlay").hidden = true;
   $("#error").textContent = "";
 }
 function start() {
   if (recording || !stream) return;
+  $("#go").disabled = true;
+  $("#go").querySelector("span").textContent = "STARTING…";
+  $("#error").textContent = "";
   photo = null;
   chunks = [];
   snapped = false;
@@ -1290,14 +1344,14 @@ function start() {
     "video/webm",
   ];
   const mime =
-    typeof MediaRecorder.isTypeSupported === "function"
+    !isIOSDevice && typeof MediaRecorder.isTypeSupported === "function"
       ? mimeCandidates.find((type) => MediaRecorder.isTypeSupported(type)) || ""
       : "";
   let microphoneSource = null,
     output = null,
     compositedVideo = true;
   try {
-    if (typeof stage.captureStream === "function") {
+    if (!isIOSDevice && typeof stage.captureStream === "function") {
       try {
         output = stage.captureStream(30);
       } catch (_) {
@@ -1307,18 +1361,26 @@ function start() {
     if (!output?.getVideoTracks().length) {
       compositedVideo = false;
       output = new MediaStream(
-        stream.getVideoTracks().map((track) => track.clone()),
+        isIOSDevice
+          ? stream.getVideoTracks()
+          : stream.getVideoTracks().map((track) => track.clone()),
       );
     }
-    const c = ensureAudio();
-    if (c && recordingAudio && stream.getAudioTracks().length) {
+    let c = null;
+    try {
+      c = ensureAudio();
+    } catch (_) {
+      c = null;
+    }
+    if (!isIOSDevice && c && recordingAudio && stream.getAudioTracks().length) {
       microphoneSource = c.createMediaStreamSource(
         new MediaStream([stream.getAudioTracks()[0]]),
       );
       microphoneSource.connect(recordingAudio);
       output.addTrack(recordingAudio.stream.getAudioTracks()[0].clone());
     } else
-      for (const track of stream.getAudioTracks()) output.addTrack(track.clone());
+      for (const track of stream.getAudioTracks())
+        output.addTrack(isIOSDevice ? track : track.clone());
     try {
       recorder = mime
         ? new MediaRecorder(output, { mimeType: mime })
@@ -1362,12 +1424,16 @@ function start() {
         "Recording failed. Change the scene and try again.";
       recording = false;
       $("#back").disabled = false;
+      $("#go").hidden = false;
+      $("#go").disabled = false;
+      $("#go").querySelector("span").textContent = "TRY AGAIN";
       output.getTracks().forEach((t) => t.stop());
     };
     recorder.start();
     started = performance.now();
     recording = true;
     $("#go").hidden = true;
+    $("#go").querySelector("span").textContent = "GO!";
     $("#back").disabled = true;
     $("#cutout").disabled = true;
     $("#instruction").textContent = "Strike a pose.";
@@ -1377,7 +1443,9 @@ function start() {
   } catch (e) {
     microphoneSource?.disconnect();
     output?.getTracks().forEach((t) => t.stop());
-    $("#error").textContent = e.message;
+    $("#go").disabled = false;
+    $("#go").querySelector("span").textContent = "TRY AGAIN";
+    $("#error").textContent = `Could not start on this device: ${e.message || "video recording failed"}`;
   }
 }
 async function save() {
@@ -1407,6 +1475,7 @@ async function save() {
     $("#instruction").textContent = "A portrait to remember.";
     $("#hint").textContent = "Saved.";
     $("#booth-share-qr").src = completed.shareQr;
+    $("#booth-share-link").href = completed.sharePath;
     $("#share-overlay").hidden = false;
   } catch (e) {
     $("#error").textContent = e.message + " Keep this screen open and retry.";
@@ -1417,7 +1486,9 @@ $("#go").onclick = start;
 $("#back").onclick = home;
 $("#retry").onclick = save;
 $("#share-overlay").onclick = home;
+$("#booth-share-link").onclick = (event) => event.stopPropagation();
 $("#share-overlay").onkeydown = (event) => {
+  if (event.target !== $("#share-overlay")) return;
   if (event.key === "Enter" || event.key === " ") home();
 };
 $("#fullscreen").onclick = () => {

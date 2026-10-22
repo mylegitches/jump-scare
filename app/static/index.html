@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Booth · Midnight Portrait Booth</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/style.css?v=canvas-countdown-1" />
+    <link rel="stylesheet" href="/static/style.css?v=pose-prompt-ios-2" />
   </head>
   <body>
     <header>
@@ -84,7 +84,9 @@
         <div class="share-card">
           <div class="eyebrow">YOUR MOMENT IS READY</div>
           <h2>Scan to get your photo &amp; video</h2>
-          <img id="booth-share-qr" alt="QR code for this photo booth moment" />
+          <a id="booth-share-link" target="_blank" rel="noopener" aria-label="Open this photo and video sharing page">
+            <img id="booth-share-qr" alt="QR code for this photo booth moment" />
+          </a>
           <p>Open your camera and point it at the QR code.</p>
           <strong>Tap anywhere when done with the QR.</strong>
         </div>
@@ -190,6 +192,6 @@
       </section>
     </main>
     <video id="camera" autoplay playsinline muted hidden></video>
-    <script type="module" src="/static/app.js?v=canvas-countdown-1"></script>
+    <script type="module" src="/static/app.js?v=pose-prompt-ios-2"></script>
   </body>
 </html>
