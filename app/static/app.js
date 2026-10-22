@@ -457,6 +457,68 @@ function playScare(creature = selected?.creature_id || selected?.ghoul) {
   harmonic.stop(now + duration);
   lfo.stop(now + duration);
 }
+const RECORDED_CREATURE_IDS = new Set([
+  "grave-warden",
+  "antler-witch",
+  "veiled-widow",
+  "bone-priest",
+  "patient-zero",
+  "drowned-monk",
+  "scarecrow",
+  "frost-nun",
+  "hook-butcher",
+  "porcelain-child",
+  "grinning-clown",
+  "cave-crawler",
+  "plague-doctor",
+  "bog-hag",
+  "dead-captain",
+  "armored-revenant",
+  "faceless-teacher",
+  "mask-phantom",
+  "rat-king",
+  "room-guest",
+]);
+const recordedCreatureSounds = new Map();
+function recordedCreatureId(scene = selected) {
+  const chosen = String(scene?.creature_id || scene?.ghoul || "").replace(
+    /^builtin:/,
+    "",
+  );
+  return RECORDED_CREATURE_IDS.has(chosen)
+    ? chosen
+    : scene?.default_ghoul || "grave-warden";
+}
+function loadRecordedCreatureSound(scene = selected) {
+  const creatureId = recordedCreatureId(scene);
+  let entry = recordedCreatureSounds.get(creatureId);
+  if (!entry) {
+    const audio = new Audio(
+      `/static/sounds/creatures/${creatureId}.mp3?v=cc0-creature-1`,
+    );
+    audio.preload = "auto";
+    audio.playsInline = true;
+    audio.load();
+    entry = { audio, source: null };
+    recordedCreatureSounds.set(creatureId, entry);
+  }
+  return entry;
+}
+function playRecordedScare() {
+  const c = ensureAudio();
+  if (!c) return;
+  const entry = loadRecordedCreatureSound();
+  if (!entry.source) {
+    entry.source = c.createMediaElementSource(entry.audio);
+    entry.source.connect(effectsBus);
+  }
+  entry.audio.pause();
+  entry.audio.currentTime = 0;
+  entry.audio.volume = 1;
+  entry.audio.play().catch((error) => {
+    $("#error").textContent = `Creature sound could not play: ${error.message}`;
+  });
+}
 // All scene art is bundled locally; the canvas fallback keeps the UI usable while an image decodes.
 const sceneImages = new Map();
 function landscape(canvas, kind) {
@@ -1091,7 +1153,7 @@ function draw(now) {
     }
     if (remaining <= 250 && !scarePlayed) {
       scarePlayed = true;
-      playScare();
+      playRecordedScare();
     }
     if (remaining <= 0 && !snapped) {
       snapped = true;
@@ -1112,6 +1174,7 @@ function draw(now) {
 }
 async function choose(scene) {
   selected = scene;
+  loadRecordedCreatureSound(scene);
   generation++;
   segmentationReady = false;
   personBounds = null;
