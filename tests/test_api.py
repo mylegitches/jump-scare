@@ -32,3 +32,13 @@ class BoothTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/captures?scene=unknown',content=b'x').status_code,400)
         self.assertEqual(self.client.post('/api/captures?scene=forest',content=b'').status_code,400)
         self.assertEqual(self.client.post('/api/captures?scene=forest&kind=exe',content=b'x').status_code,400)
+
+    def test_reaction_recording_setting(self):
+        self.assertEqual(self.client.get('/api/config').json()['reaction_seconds'], 1.5)
+        self.assertEqual(self.client.get('/api/admin/settings').status_code, 401)
+        response = self.client.put('/api/admin/settings', headers=self.auth, json={'reaction_seconds': 4.5})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['reaction_seconds'], 4.5)
+        self.assertEqual(self.client.get('/api/config').json()['reaction_seconds'], 4.5)
+        self.assertEqual(self.client.put('/api/admin/settings', headers=self.auth, json={'reaction_seconds': 31}).status_code, 422)
+        self.assertEqual(self.client.put('/api/admin/settings', headers=self.auth, json={'reaction_seconds': 1.5}).status_code, 200)

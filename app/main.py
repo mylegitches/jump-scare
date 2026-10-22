@@ -8,6 +8,7 @@ import uuid
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).parent
 DATA = Path(os.environ.get('JUMPSCARE_DATA_DIR', str(ROOT.parent / 'data')))
@@ -18,6 +19,8 @@ if not os.environ.get('JUMPSCARE_ADMIN_PIN'):
 DB = DATA / 'recordings.sqlite3'
 with sqlite3.connect(DB) as db:
     db.execute('CREATE TABLE IF NOT EXISTS captures (id TEXT PRIMARY KEY, scene TEXT, created TEXT, video_type TEXT, archived INTEGER DEFAULT 0)')
+    db.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('reaction_seconds','1.5')")
 app = FastAPI(title='JumpScare')
 app.mount('/static', StaticFiles(directory=ROOT / 'static'), name='static')
 SCENES = [
@@ -26,6 +29,13 @@ SCENES = [
     {'id':'manor','name':'Blackwood Manor','tag':'Make yourself at home. Forever.','kind':'manor','number':'03'},
     {'id':'crypt','name':'The Underground','tag':'Some doors should stay closed.','kind':'crypt','number':'04'},
 ]
+
+class BoothSettings(BaseModel):
+    reaction_seconds: float = Field(ge=0, le=30)
+
+def get_reaction_seconds():
+    with sqlite3.connect(DB) as db:
+        return float(db.execute("SELECT value FROM settings WHERE key='reaction_seconds'").fetchone()[0])
 
 def admin(request: Request):
     if not secrets.compare_digest(request.headers.get('X-Admin-Pin', ''), PIN):
@@ -39,6 +49,20 @@ def index():
 @app.get('/api/scenes')
 def scenes():
     return SCENES
+
+@app.get('/api/config')
+def config():
+    return {'reaction_seconds': get_reaction_seconds()}
+
+@app.get('/api/admin/settings', dependencies=[Depends(admin)])
+def settings():
+    return {'reaction_seconds': get_reaction_seconds()}
+
+@app.put('/api/admin/settings', dependencies=[Depends(admin)])
+def update_settings(settings: BoothSettings):
+    with sqlite3.connect(DB) as db:
+        db.execute("UPDATE settings SET value=? WHERE key='reaction_seconds'", (str(settings.reaction_seconds),))
+    return {'reaction_seconds': settings.reaction_seconds}
 
 @app.post('/api/captures')
 async def capture(request: Request, scene: str, kind: str = 'webm'):
