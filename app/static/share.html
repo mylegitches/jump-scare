@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Your photo booth moment</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100dvh; background: #0f1117; color: #e2e8f0; }
+      main { width: min(900px, 100%); margin: auto; padding: 28px 18px 48px; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+      h1 { margin: 0; font-size: clamp(25px, 7vw, 48px); line-height: 1.05; }
+      h1 span { color: #4cc26a; }
+      #date { color: #8492a6; font-size: 13px; }
+      .media { display: grid; gap: 18px; }
+      img, video { display: block; width: 100%; max-height: 72dvh; object-fit: contain; border: 1px solid #2c2f3e; border-radius: 12px; background: #050608; }
+      .downloads { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+      a { min-height: 48px; display: inline-grid; place-items: center; padding: 10px 18px; border: 1px solid #237237; border-radius: 8px; background: #095b1b; color: white; text-decoration: none; }
+      #error { color: #ff8f86; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header><div><h1 id="title">Your <span>moment.</span></h1><div id="date"></div></div></header>
+      <p id="error" role="alert"></p>
+      <div class="media" id="media"></div>
+      <div class="downloads" id="downloads"></div>
+    </main>
+    <script>
+      (async () => {
+        const token = location.pathname.split('/').filter(Boolean).pop();
+        const response = await fetch(`/api/share/${encodeURIComponent(token)}`);
+        if (!response.ok) throw Error('This shared moment is unavailable.');
+        const item = await response.json();
+        document.title = `${item.scene} · ${item.booth_name}`;
+        document.querySelector('#title').innerHTML = `${item.scene} <span>moment.</span>`;
+        document.querySelector('#date').textContent = new Date(item.created).toLocaleString();
+        const media = document.querySelector('#media');
+        if (item.photo) {
+          const image = new Image(); image.src = item.photo_url; image.alt = `Photo from ${item.scene}`; media.append(image);
+        }
+        const video = document.createElement('video'); video.src = item.video_url; video.controls = true; video.playsInline = true; video.preload = 'metadata'; media.append(video);
+        const links = document.querySelector('#downloads');
+        for (const [label, url] of [['Download video', item.video_url], ...(item.photo ? [['Download photo', item.photo_url]] : [])]) {
+          const link = document.createElement('a'); link.href = url; link.download = ''; link.textContent = label; links.append(link);
+        }
+      })().catch(error => document.querySelector('#error').textContent = error.message);
+    </script>
+  </body>
+</html>

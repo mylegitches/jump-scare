@@ -7,10 +7,11 @@ import secrets
 import sqlite3
 import uuid
 from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from PIL import Image, UnidentifiedImageError
+import qrcode
 
 ROOT = Path(__file__).parent
 DATA = Path(os.environ.get('JUMPSCARE_DATA_DIR', str(ROOT.parent / 'data')))
@@ -29,6 +30,7 @@ with sqlite3.connect(DB) as db:
     db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('show_header_controls','1')")
     db.execute('CREATE TABLE IF NOT EXISTS custom_creatures (id TEXT PRIMARY KEY, name TEXT NOT NULL, filename TEXT NOT NULL, content_type TEXT NOT NULL, created TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS scene_creatures (scene TEXT PRIMARY KEY, creature_id TEXT NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS capture_shares (capture_id TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, created TEXT NOT NULL)')
 app = FastAPI(title='JumpScare')
 app.mount('/static', StaticFiles(directory=ROOT / 'static'), name='static')
 SCENES = [
@@ -87,6 +89,10 @@ def admin(request: Request):
 @app.get('/admin')
 def index():
     return FileResponse(ROOT / 'static/index.html')
+
+@app.get('/share/{token}', name='share_page')
+def share_page(token: str):
+    return FileResponse(ROOT / 'static/share.html')
 
 def creature_name(creature_id: str):
     return ' '.join(word.capitalize() for word in creature_id.split('-'))
@@ -273,13 +279,22 @@ async def capture(request: Request, scene: str, kind: str = 'webm'):
                 output.write(chunk)
         if total == 0:
             raise HTTPException(400, 'Recording was empty.')
+        share_token = secrets.token_urlsafe(24)
         with sqlite3.connect(DB) as db:
             db.execute('INSERT INTO captures(id,scene,created,video_type) VALUES(?,?,?,?)',
                        (capture_id, scene, datetime.now(timezone.utc).isoformat(), kind))
+            db.execute(
+                'INSERT INTO capture_shares(capture_id,token,created) VALUES(?,?,?)',
+                (capture_id, share_token, datetime.now(timezone.utc).isoformat()),
+            )
     except BaseException:
         target.unlink(missing_ok=True)
         raise
-    return {'id': capture_id}
+    return {
+        'id': capture_id,
+        'share_path': f'/share/{share_token}',
+        'share_qr': f'/api/share/{share_token}/qr.png',
+    }
 
 @app.put('/api/captures/{capture_id}/photo')
 async def photo(capture_id: str, request: Request):
@@ -306,6 +321,71 @@ def recordings():
     with sqlite3.connect(DB) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) | {'photo': (DATA / f"{row['id']}.jpg").exists()} for row in db.execute('SELECT * FROM captures WHERE archived=0 ORDER BY created DESC')]
+
+def shared_capture(token: str):
+    if len(token) < 24 or len(token) > 80:
+        raise HTTPException(404)
+    with sqlite3.connect(DB) as db:
+        db.row_factory = sqlite3.Row
+        row = db.execute(
+            'SELECT captures.* FROM captures JOIN capture_shares ON capture_shares.capture_id=captures.id WHERE capture_shares.token=?',
+            (token,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404)
+    return dict(row)
+
+@app.post('/api/admin/captures/{capture_id}/share', dependencies=[Depends(admin)])
+def create_share(capture_id: str):
+    with sqlite3.connect(DB) as db:
+        if not db.execute('SELECT 1 FROM captures WHERE id=?', (capture_id,)).fetchone():
+            raise HTTPException(404)
+        row = db.execute('SELECT token FROM capture_shares WHERE capture_id=?', (capture_id,)).fetchone()
+        if row:
+            token = row[0]
+        else:
+            token = secrets.token_urlsafe(24)
+            db.execute(
+                'INSERT INTO capture_shares(capture_id,token,created) VALUES(?,?,?)',
+                (capture_id, token, datetime.now(timezone.utc).isoformat()),
+            )
+    return {'path': f'/share/{token}', 'qr': f'/api/share/{token}/qr.png'}
+
+@app.get('/api/share/{token}')
+def share_details(token: str):
+    item = shared_capture(token)
+    scene = next((scene for scene in SCENES if scene['id'] == item['scene']), None)
+    return {
+        'scene': scene['name'] if scene else item['scene'],
+        'created': item['created'],
+        'photo': (DATA / f"{item['id']}.jpg").exists(),
+        'video_type': item['video_type'],
+        'photo_url': f'/api/share/{token}/media/jpg',
+        'video_url': f"/api/share/{token}/media/{item['video_type']}",
+        'booth_name': get_settings()['booth_name'],
+    }
+
+@app.get('/api/share/{token}/media/{kind}')
+def share_media(token: str, kind: str):
+    item = shared_capture(token)
+    if kind not in {'jpg', 'webm', 'mp4'} or (kind != 'jpg' and kind != item['video_type']):
+        raise HTTPException(404)
+    path = DATA / f"{item['id']}.{kind}"
+    if not path.is_file():
+        raise HTTPException(404)
+    media_types = {'jpg': 'image/jpeg', 'webm': 'video/webm', 'mp4': 'video/mp4'}
+    return FileResponse(path, media_type=media_types[kind])
+
+@app.get('/api/share/{token}/qr.png')
+def share_qr(token: str, request: Request):
+    shared_capture(token)
+    scheme = request.headers.get('x-forwarded-proto', request.url.scheme).split(',')[0].strip()
+    host = request.headers.get('x-forwarded-host', request.headers.get('host', request.url.netloc)).split(',')[0].strip()
+    url = f'{scheme}://{host}/share/{token}'
+    image = qrcode.make(url)
+    output = BytesIO()
+    image.save(output, format='PNG')
+    return Response(output.getvalue(), media_type='image/png', headers={'Cache-Control': 'private, max-age=3600'})
 
 @app.get('/api/admin/media/{capture_id}/{kind}', dependencies=[Depends(admin)])
 def media(capture_id: str, kind: str):

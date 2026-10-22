@@ -14,7 +14,6 @@ let scenes = [],
   chunks = [],
   photo = null,
   pending = null,
-  returnTimer = null,
   generation = 0,
   segmenter = null,
   uploadSegmenter = null,
@@ -1215,8 +1214,8 @@ async function choose(scene) {
     stream = acquired;
     video.srcObject = stream;
     await video.play();
-    if (!("MediaRecorder" in window) || !stage.captureStream)
-      throw Error("Use a current version of Microsoft Edge to record.");
+    if (!("MediaRecorder" in window))
+      throw Error("This browser cannot record video. Update Safari, Chrome, or Edge and try again.");
     if ($("#cutout").checked) {
       $("#camera-status").textContent = "Preparing person cutout…";
       await setupSegmenter();
@@ -1231,7 +1230,6 @@ async function choose(scene) {
   }
 }
 function home() {
-  clearTimeout(returnTimer);
   generation++;
   stream?.getTracks().forEach((t) => t.stop());
   stream = null;
@@ -1248,6 +1246,7 @@ function home() {
   $("#cutout").disabled = false;
   $("#go").hidden = false;
   $("#retry").hidden = true;
+  $("#share-overlay").hidden = true;
   $("#error").textContent = "";
 }
 function start() {
@@ -1258,39 +1257,62 @@ function start() {
   lastCountdown = 0;
   scarePlayed = false;
   scarePlacement = null;
-  const mime = [
+  const mimeCandidates = [
+    "video/mp4;codecs=h264,aac",
+    "video/mp4",
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
     "video/webm",
-    "video/mp4",
-  ].find((t) => MediaRecorder.isTypeSupported(t));
-  if (!mime) {
-    $("#error").textContent =
-      "Your browser cannot record video. Use the latest Microsoft Edge.";
-    return;
-  }
-  const output = stage.captureStream(30),
-    c = ensureAudio();
-  let microphoneSource = null;
-  if (c && recordingAudio && stream.getAudioTracks().length) {
-    microphoneSource = c.createMediaStreamSource(
-      new MediaStream([stream.getAudioTracks()[0]]),
-    );
-    microphoneSource.connect(recordingAudio);
-    output.addTrack(recordingAudio.stream.getAudioTracks()[0].clone());
-  } else
-    for (const track of stream.getAudioTracks()) output.addTrack(track.clone());
+  ];
+  const mime =
+    typeof MediaRecorder.isTypeSupported === "function"
+      ? mimeCandidates.find((type) => MediaRecorder.isTypeSupported(type)) || ""
+      : "";
+  let microphoneSource = null,
+    output = null,
+    compositedVideo = true;
   try {
-    recorder = new MediaRecorder(output, { mimeType: mime });
+    if (typeof stage.captureStream === "function") {
+      try {
+        output = stage.captureStream(30);
+      } catch (_) {
+        output = null;
+      }
+    }
+    if (!output?.getVideoTracks().length) {
+      compositedVideo = false;
+      output = new MediaStream(
+        stream.getVideoTracks().map((track) => track.clone()),
+      );
+    }
+    const c = ensureAudio();
+    if (c && recordingAudio && stream.getAudioTracks().length) {
+      microphoneSource = c.createMediaStreamSource(
+        new MediaStream([stream.getAudioTracks()[0]]),
+      );
+      microphoneSource.connect(recordingAudio);
+      output.addTrack(recordingAudio.stream.getAudioTracks()[0].clone());
+    } else
+      for (const track of stream.getAudioTracks()) output.addTrack(track.clone());
+    try {
+      recorder = mime
+        ? new MediaRecorder(output, { mimeType: mime })
+        : new MediaRecorder(output);
+    } catch (mimeError) {
+      if (!mime) throw mimeError;
+      recorder = new MediaRecorder(output);
+    }
     recorder.ondataavailable = (e) => {
       if (e.data.size) chunks.push(e.data);
     };
     recorder.onstop = async () => {
       microphoneSource?.disconnect();
       output.getTracks().forEach((t) => t.stop());
+      const recordedType =
+        recorder.mimeType || mime || chunks[0]?.type || "video/webm";
       pending = {
-        blob: new Blob(chunks, { type: mime }),
-        kind: mime.includes("mp4") ? "mp4" : "webm",
+        blob: new Blob(chunks, { type: recordedType }),
+        kind: recordedType.includes("mp4") ? "mp4" : "webm",
         scene: selected.id,
         photo: null,
         id: null,
@@ -1317,17 +1339,19 @@ function start() {
       $("#back").disabled = false;
       output.getTracks().forEach((t) => t.stop());
     };
-    recorder.start(100);
+    recorder.start();
     started = performance.now();
     recording = true;
     $("#go").hidden = true;
     $("#back").disabled = true;
     $("#cutout").disabled = true;
     $("#instruction").textContent = "Strike a pose.";
-    $("#hint").textContent = "Look at the screen.";
+    $("#hint").textContent = compositedVideo
+      ? "Look at the screen."
+      : "Look at the screen. Your photo includes the scene; this device records the camera reaction.";
   } catch (e) {
     microphoneSource?.disconnect();
-    output.getTracks().forEach((t) => t.stop());
+    output?.getTracks().forEach((t) => t.stop());
     $("#error").textContent = e.message;
   }
 }
@@ -1342,7 +1366,10 @@ async function save() {
         { method: "POST", body: pending.blob },
       );
       if (!r.ok) throw Error("Video could not be saved.");
-      pending.id = (await r.json()).id;
+      const capture = await r.json();
+      pending.id = capture.id;
+      pending.sharePath = capture.share_path;
+      pending.shareQr = capture.share_qr;
     }
     const r = await fetch(`/api/captures/${pending.id}/photo`, {
       method: "PUT",
@@ -1350,10 +1377,12 @@ async function save() {
       body: pending.photo,
     });
     if (!r.ok && r.status !== 409) throw Error("Photo could not be saved.");
+    const completed = pending;
     pending = null;
     $("#instruction").textContent = "A portrait to remember.";
-    $("#hint").textContent = "Saved. The next guest is up in a moment.";
-    returnTimer = setTimeout(home, 3000);
+    $("#hint").textContent = "Saved.";
+    $("#booth-share-qr").src = completed.shareQr;
+    $("#share-overlay").hidden = false;
   } catch (e) {
     $("#error").textContent = e.message + " Keep this screen open and retry.";
     $("#retry").hidden = false;
@@ -1362,6 +1391,10 @@ async function save() {
 $("#go").onclick = start;
 $("#back").onclick = home;
 $("#retry").onclick = save;
+$("#share-overlay").onclick = home;
+$("#share-overlay").onkeydown = (event) => {
+  if (event.key === "Enter" || event.key === " ") home();
+};
 $("#fullscreen").onclick = () => {
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen().catch(() => {});
@@ -1541,7 +1574,7 @@ async function library(e) {
   });
   if (!r.ok) {
     $("#admin-message").textContent = "PIN not recognized. Try again.";
-    return;
+    return false;
   }
   const items = await r.json();
   adminObjectUrls.forEach(URL.revokeObjectURL);
@@ -1577,6 +1610,49 @@ async function library(e) {
         );
       card.append(b);
     }
+    const share = document.createElement("button"),
+      shareTools = document.createElement("div");
+    share.type = "button";
+    share.className = "secondary";
+    share.textContent = "Show sharing QR";
+    shareTools.className = "capture-share";
+    shareTools.hidden = true;
+    share.onclick = async () => {
+      share.disabled = true;
+      const response = await fetch(`/api/admin/captures/${item.id}/share`, {
+        method: "POST",
+        headers: { "X-Admin-Pin": $("#pin").value },
+      });
+      share.disabled = false;
+      if (!response.ok) {
+        $("#admin-message").textContent = "Could not create the sharing link.";
+        return;
+      }
+      const result = await response.json(),
+        url = new URL(result.path, location.origin).href,
+        qr = document.createElement("img"),
+        details = document.createElement("div"),
+        link = document.createElement("a"),
+        copy = document.createElement("button");
+      qr.src = result.qr;
+      qr.alt = "QR code for the shared photo and video";
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = url;
+      copy.type = "button";
+      copy.className = "secondary";
+      copy.textContent = "Copy link";
+      copy.onclick = async () => {
+        await navigator.clipboard.writeText(url);
+        copy.textContent = "Copied";
+      };
+      details.append(link, copy);
+      shareTools.replaceChildren(qr, details);
+      shareTools.hidden = false;
+      share.textContent = "Sharing QR shown";
+    };
+    card.append(share, shareTools);
     const archive = document.createElement("button");
     archive.className = "secondary";
     archive.textContent = "Archive";
@@ -1599,6 +1675,7 @@ async function library(e) {
     card.append(archive);
     $("#library").append(card);
   }
+  return true;
 }
 function creatureOption(item) {
   const option = document.createElement("option");
@@ -1619,10 +1696,23 @@ async function loadCreatureAdmin() {
   if (!response.ok) return;
   const catalog = await response.json(),
     allCreatures = [...catalog.builtins, ...catalog.custom],
+    builtinGrid = $("#builtin-creatures"),
     customGrid = $("#custom-creatures"),
     assignments = $("#scene-creature-selectors");
+  builtinGrid.replaceChildren();
   customGrid.replaceChildren();
   assignments.replaceChildren();
+  for (const creature of catalog.builtins) {
+    const card = document.createElement("article"),
+      image = document.createElement("img"),
+      name = document.createElement("strong");
+    card.className = "custom-creature";
+    image.src = creature.src;
+    image.alt = `${creature.name} built-in character`;
+    name.textContent = creature.name;
+    card.append(image, name);
+    builtinGrid.append(card);
+  }
   if (!catalog.custom.length) {
     const empty = document.createElement("p");
     empty.className = "admin-help";
@@ -1704,20 +1794,19 @@ async function loadCreatureAdmin() {
       });
       select.disabled = false;
       if (!save.ok) {
-        $("#creature-message").textContent =
+        $("#scene-message").textContent =
           `Could not change the creature for ${scene.name}.`;
         return;
       }
       preview.src = select.selectedOptions[0].dataset.src;
       await refreshSceneData();
-      $("#creature-message").textContent =
+      $("#scene-message").textContent =
         `Saved ${select.selectedOptions[0].textContent} for ${scene.name}.`;
     };
     label.append(title, select);
     row.append(preview, label);
     assignments.append(row);
   }
-  $("#creature-settings").hidden = false;
 }
 function canvasBlob(canvas, type, quality) {
   return new Promise((resolve, reject) =>
@@ -1944,10 +2033,34 @@ async function saveAdminSettings(e) {
   $("#settings-message").textContent =
     `Saved “${settings.booth_name}”. Future sessions record for ${settings.reaction_seconds} seconds after the photo.`;
 }
-$("#login").onsubmit = (e) => {
-  library(e)
-    .then(() => Promise.all([loadAdminSettings(), loadCreatureAdmin()]))
-    .catch((e) => ($("#admin-message").textContent = e.message));
+function setAdminTab(tab) {
+  const panels = {
+    library: $("#admin-library-panel"),
+    scenes: $("#admin-scenes-panel"),
+    characters: $("#creature-settings"),
+  };
+  for (const [name, panel] of Object.entries(panels))
+    panel.hidden = name !== tab;
+  document.querySelectorAll(".admin-tab").forEach((button) => {
+    const active = button.dataset.adminTab === tab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+}
+document.querySelectorAll(".admin-tab").forEach((button) => {
+  button.onclick = () => setAdminTab(button.dataset.adminTab);
+});
+$("#login").onsubmit = async (e) => {
+  try {
+    const unlocked = await library(e);
+    if (!unlocked) return;
+    await Promise.all([loadAdminSettings(), loadCreatureAdmin()]);
+    $("#login").hidden = true;
+    $("#admin-tabs").hidden = false;
+    setAdminTab("library");
+  } catch (error) {
+    $("#admin-message").textContent = error.message;
+  }
 };
 $("#creature-upload").onsubmit = (e) =>
   uploadCreature(e).catch(

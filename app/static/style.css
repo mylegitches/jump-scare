@@ -436,7 +436,8 @@ input[type="checkbox"] {
 #admin-message,
 #error,
 #settings-message,
-#creature-message {
+#creature-message,
+#scene-message {
   color: #f59e0b;
 }
 #login {
@@ -465,12 +466,12 @@ input[type="text"] {
   font: inherit;
 }
 #settings,
-#creature-settings,
+.admin-panel,
 input[type="number"] {
   border: 1px solid var(--border);
 }
 #settings,
-#creature-settings {
+.admin-panel {
   max-width: 980px;
   margin: 28px 0;
   padding: 22px;
@@ -478,8 +479,32 @@ input[type="number"] {
   background: var(--surface);
 }
 #settings h2,
-#creature-settings h2 {
+.admin-panel h2 {
   margin: 0 0 16px;
+}
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  max-width: 980px;
+  margin-top: 28px;
+  padding: 6px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #11141c;
+}
+.admin-tab {
+  flex: 1 0 auto;
+  min-height: 48px;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+}
+.admin-tab.active {
+  background: var(--accent);
+  color: #fff;
 }
 #settings-form {
   display: grid;
@@ -556,6 +581,7 @@ select {
   color: var(--text);
   font: inherit;
 }
+#builtin-creatures,
 #custom-creatures {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -653,6 +679,27 @@ select {
   font-size: 12px;
   padding: 9px 12px;
   min-height: 44px;
+}
+.capture-share {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: #10131a;
+}
+.capture-share img {
+  width: 132px;
+  height: 132px;
+  border-radius: 0;
+}
+.capture-share a {
+  color: #07531b;
+  overflow-wrap: anywhere;
 }
 .frame-picker {
   margin: 18px 0;
@@ -773,6 +820,7 @@ select {
   #scene-creature-selectors {
     grid-template-columns: 1fr;
   }
+  #builtin-creatures,
   #custom-creatures {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -856,6 +904,7 @@ select {
 #booth .viewfinder canvas {
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   object-fit: cover;
 }
 #booth .camera-button {
@@ -931,4 +980,48 @@ select {
   bottom: 55px;
   z-index: 9;
   transform: translateX(-50%);
+}
+#share-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  background: radial-gradient(circle at 50% 35%, #172219, #050607 72%);
+  cursor: pointer;
+}
+.share-card {
+  width: min(540px, 100%);
+  text-align: center;
+}
+.share-card h2 {
+  margin: 10px 0 18px;
+  font-size: clamp(25px, 7vw, 44px);
+  line-height: 1.08;
+}
+.share-card img {
+  display: block;
+  width: min(58vw, 330px);
+  aspect-ratio: 1;
+  margin: auto;
+  padding: 10px;
+  border-radius: 12px;
+  background: #fff;
+}
+.share-card p { color: var(--muted); }
+.share-card strong { display: block; color: var(--green); font-size: 18px; }
+@media (orientation: portrait) and (max-width: 900px) {
+  #booth .viewfinder canvas {
+    object-fit: contain;
+  }
+  #booth .camera-button {
+    bottom: max(14px, env(safe-area-inset-bottom));
+    min-width: 164px;
+    min-height: 60px;
+    font-size: 23px;
+  }
+  #booth #countdown {
+    font-size: clamp(130px, 42vw, 260px);
+  }
 }
