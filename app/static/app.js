@@ -21,6 +21,7 @@ let scenes = [],
   lastSegmentation = 0,
   audioContext = null,
   effectsBus = null,
+  audioLimiter = null,
   recordingAudio = null,
   lastCountdown = 0,
   scarePlayed = false,
@@ -147,10 +148,17 @@ function ensureAudio() {
   if (!audioContext) {
     audioContext = new Audio();
     effectsBus = audioContext.createGain();
-    effectsBus.gain.value = 0.82;
+    effectsBus.gain.value = 1.15;
+    audioLimiter = audioContext.createDynamicsCompressor();
+    audioLimiter.threshold.value = -10;
+    audioLimiter.knee.value = 8;
+    audioLimiter.ratio.value = 12;
+    audioLimiter.attack.value = 0.002;
+    audioLimiter.release.value = 0.18;
     recordingAudio = audioContext.createMediaStreamDestination();
-    effectsBus.connect(audioContext.destination);
-    effectsBus.connect(recordingAudio);
+    effectsBus.connect(audioLimiter);
+    audioLimiter.connect(audioContext.destination);
+    audioLimiter.connect(recordingAudio);
   }
   audioContext.resume();
   return audioContext;
@@ -172,42 +180,52 @@ function playTick(number) {
   osc.stop(now + 0.21);
 }
 const SCARE_SOUNDS = {
-  grave: [780, 110, 68, 24, 620, 180, "sawtooth", 1],
-  forest: [2100, 320, 105, 31, 1680, 410, "square", 3],
-  manor: [1450, 90, 54, 19, 1240, 150, "sine", 2],
-  crypt: [520, 65, 46, 18, 760, 120, "sawtooth", 1],
-  asylum: [2850, 440, 123, 35, 1980, 260, "square", 4],
-  catacombs: [390, 82, 59, 21, 510, 105, "triangle", 2],
-  harvest: [1760, 210, 88, 27, 1120, 230, "sawtooth", 3],
-  chapel: [2440, 160, 72, 22, 2240, 190, "sine", 4],
-  butcher: [980, 130, 96, 28, 840, 210, "square", 5],
-  nursery: [3180, 620, 156, 48, 2640, 380, "sine", 5],
-  carnival: [2270, 290, 117, 33, 1840, 330, "square", 6],
-  mine: [660, 74, 42, 17, 1480, 175, "triangle", 3],
-  village: [1120, 95, 61, 20, 910, 135, "sine", 2],
-  swamp: [430, 58, 38, 14, 690, 98, "sawtooth", 4],
-  shipwreck: [570, 69, 51, 16, 1030, 142, "triangle", 3],
-  castle: [860, 105, 76, 23, 1320, 205, "square", 2],
-  school: [3520, 510, 132, 39, 2940, 460, "sawtooth", 5],
-  theater: [1960, 145, 83, 25, 2380, 240, "sine", 3],
-  sewer: [1240, 170, 94, 29, 1760, 280, "square", 7],
-  motel: [720, 88, 49, 18, 1560, 160, "sawtooth", 2],
+  grave: { voice: "groan", pitch: 72, end: 31, noise: 520, duration: 1.5, pulses: 3 },
+  forest: { voice: "shriek", pitch: 690, end: 175, noise: 2400, duration: 1.2, pulses: 5 },
+  manor: { voice: "moan", pitch: 250, end: 88, noise: 1500, duration: 1.55, pulses: 3 },
+  crypt: { voice: "groan", pitch: 84, end: 34, noise: 680, duration: 1.45, pulses: 2 },
+  asylum: { voice: "shriek", pitch: 760, end: 205, noise: 2900, duration: 1.25, pulses: 6 },
+  catacombs: { voice: "moan", pitch: 205, end: 70, noise: 610, duration: 1.6, pulses: 3 },
+  harvest: { voice: "roar", pitch: 118, end: 39, noise: 1350, duration: 1.35, pulses: 5 },
+  chapel: { voice: "shriek", pitch: 620, end: 145, noise: 2500, duration: 1.35, pulses: 5 },
+  butcher: { voice: "roar", pitch: 104, end: 38, noise: 980, duration: 1.3, pulses: 6 },
+  nursery: { voice: "shriek", pitch: 890, end: 260, noise: 3300, duration: 1.15, pulses: 7 },
+  carnival: { voice: "shriek", pitch: 735, end: 190, noise: 2600, duration: 1.25, pulses: 7 },
+  mine: { voice: "growl", pitch: 92, end: 32, noise: 820, duration: 1.45, pulses: 4 },
+  village: { voice: "groan", pitch: 98, end: 36, noise: 1100, duration: 1.5, pulses: 3 },
+  swamp: { voice: "growl", pitch: 76, end: 27, noise: 540, duration: 1.55, pulses: 5 },
+  shipwreck: { voice: "moan", pitch: 185, end: 56, noise: 920, duration: 1.6, pulses: 4 },
+  castle: { voice: "roar", pitch: 112, end: 41, noise: 1420, duration: 1.4, pulses: 4 },
+  school: { voice: "shriek", pitch: 950, end: 280, noise: 3550, duration: 1.1, pulses: 7 },
+  theater: { voice: "moan", pitch: 285, end: 92, noise: 2100, duration: 1.45, pulses: 4 },
+  sewer: { voice: "roar", pitch: 132, end: 45, noise: 1750, duration: 1.3, pulses: 8 },
+  motel: { voice: "groan", pitch: 88, end: 30, noise: 1350, duration: 1.5, pulses: 3 },
 };
+const VOICE_SHAPES = {
+  shriek: { wave: "sawtooth", formants: [1450, 3150], q: 5.5, wobble: 17, noiseQ: 1.8 },
+  groan: { wave: "sawtooth", formants: [310, 760], q: 3.8, wobble: 5.2, noiseQ: 1.1 },
+  moan: { wave: "triangle", formants: [470, 1180], q: 4.5, wobble: 4.1, noiseQ: 1.4 },
+  roar: { wave: "sawtooth", formants: [220, 690], q: 2.9, wobble: 10.5, noiseQ: 0.9 },
+  growl: { wave: "square", formants: [175, 510], q: 3.2, wobble: 13, noiseQ: 0.8 },
+};
+function distortionCurve(amount = 72) {
+  const samples = 256,
+    curve = new Float32Array(samples),
+    deg = Math.PI / 180;
+  for (let i = 0; i < samples; i++) {
+    const x = (i * 2) / samples - 1;
+    curve[i] =
+      ((3 + amount) * x * 20 * deg) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
 function playScare(profile = selected?.sound) {
   const c = ensureAudio();
   if (!c) return;
-  const [
-    noiseStart,
-    noiseEnd,
-    lowStart,
-    lowEnd,
-    highStart,
-    highEnd,
-    wave,
-    pulses,
-  ] = SCARE_SOUNDS[profile] || SCARE_SOUNDS.grave;
-  const now = c.currentTime,
-    duration = 1.15,
+  const sound = SCARE_SOUNDS[profile] || SCARE_SOUNDS.grave,
+    shape = VOICE_SHAPES[sound.voice],
+    { pitch, end, noise: noiseStart, duration, pulses } = sound,
+    now = c.currentTime,
     buffer = c.createBuffer(
       1,
       Math.ceil(c.sampleRate * duration),
@@ -215,62 +233,90 @@ function playScare(profile = selected?.sound) {
     ),
     data = buffer.getChannelData(0);
   for (let i = 0; i < data.length; i++) {
-    const envelope = Math.pow(1 - i / data.length, 1.7);
-    data[i] = (Math.random() * 2 - 1) * envelope;
+    const envelope = Math.pow(1 - i / data.length, 1.35),
+      rasp = i % Math.max(2, Math.round(c.sampleRate / (pitch * 3))) === 0 ? 0.65 : 1;
+    data[i] = (Math.random() * 2 - 1) * envelope * rasp;
   }
   const noise = c.createBufferSource(),
     filter = c.createBiquadFilter(),
     noiseGain = c.createGain(),
-    growl = c.createOscillator(),
-    growlGain = c.createGain(),
-    shriek = c.createOscillator(),
-    shriekGain = c.createGain();
+    voiceIn = c.createGain(),
+    voiceGain = c.createGain(),
+    distortion = c.createWaveShaper(),
+    carrier = c.createOscillator(),
+    harmonic = c.createOscillator(),
+    lfo = c.createOscillator(),
+    lfoDepth = c.createGain(),
+    formantA = c.createBiquadFilter(),
+    formantB = c.createBiquadFilter();
   noise.buffer = buffer;
   filter.type = "bandpass";
   filter.frequency.setValueAtTime(noiseStart, now);
-  filter.frequency.exponentialRampToValueAtTime(noiseEnd, now + duration);
-  filter.Q.value = 0.7;
+  filter.frequency.exponentialRampToValueAtTime(
+    Math.max(110, noiseStart * 0.16),
+    now + duration,
+  );
+  filter.Q.value = shape.noiseQ;
   noiseGain.gain.setValueAtTime(0.0001, now);
-  noiseGain.gain.exponentialRampToValueAtTime(0.9, now + 0.025);
+  noiseGain.gain.exponentialRampToValueAtTime(
+    sound.voice === "shriek" ? 0.78 : 0.92,
+    now + 0.018,
+  );
   noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-  growl.type = wave;
-  growl.frequency.setValueAtTime(lowStart, now);
-  growl.frequency.exponentialRampToValueAtTime(lowEnd, now + 0.9);
-  growlGain.gain.setValueAtTime(0.0001, now);
-  growlGain.gain.exponentialRampToValueAtTime(0.5, now + 0.025);
-  growlGain.gain.exponentialRampToValueAtTime(0.0001, now + 1);
-  shriek.type = wave === "sine" ? "triangle" : "sawtooth";
-  shriek.frequency.setValueAtTime(highStart, now);
-  shriek.frequency.exponentialRampToValueAtTime(highEnd, now + 0.55);
-  shriekGain.gain.setValueAtTime(0.0001, now);
-  shriekGain.gain.exponentialRampToValueAtTime(0.32, now + 0.01);
-  shriekGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.65);
+  carrier.type = shape.wave;
+  harmonic.type = sound.voice === "moan" ? "sine" : "triangle";
+  carrier.frequency.setValueAtTime(pitch, now);
+  carrier.frequency.exponentialRampToValueAtTime(end, now + duration * 0.78);
+  harmonic.frequency.setValueAtTime(pitch * 1.51, now);
+  harmonic.frequency.exponentialRampToValueAtTime(
+    end * 1.18,
+    now + duration * 0.68,
+  );
+  harmonic.detune.value = -11;
+  voiceIn.gain.value = 0.72;
+  voiceGain.gain.setValueAtTime(0.0001, now);
+  voiceGain.gain.exponentialRampToValueAtTime(
+    sound.voice === "shriek" ? 0.72 : 0.86,
+    now + 0.014,
+  );
+  voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  lfo.frequency.value = shape.wobble;
+  lfoDepth.gain.value = sound.voice === "shriek" ? 0.1 : 0.17;
+  formantA.type = formantB.type = "bandpass";
+  formantA.frequency.value = shape.formants[0];
+  formantB.frequency.value = shape.formants[1];
+  formantA.Q.value = formantB.Q.value = shape.q;
+  distortion.curve = distortionCurve(sound.voice === "shriek" ? 46 : 84);
+  distortion.oversample = "2x";
   noise.connect(filter).connect(noiseGain).connect(effectsBus);
-  growl.connect(growlGain).connect(effectsBus);
-  shriek.connect(shriekGain).connect(effectsBus);
+  carrier.connect(voiceIn);
+  harmonic.connect(voiceIn);
+  lfo.connect(lfoDepth).connect(voiceIn.gain);
+  voiceIn.connect(formantA).connect(voiceGain);
+  voiceIn.connect(formantB).connect(voiceGain);
+  voiceGain.connect(distortion).connect(effectsBus);
   noise.start(now);
-  growl.start(now);
-  shriek.start(now);
+  carrier.start(now);
+  harmonic.start(now);
+  lfo.start(now);
   for (let i = 0; i < pulses; i++) {
     const strike = c.createOscillator(),
       strikeGain = c.createGain(),
       at = now + i * 0.075;
     strike.type = i % 2 ? "square" : "triangle";
-    strike.frequency.setValueAtTime(highStart * (0.45 + i * 0.06), at);
-    strike.frequency.exponentialRampToValueAtTime(
-      Math.max(40, highEnd),
-      at + 0.12,
-    );
+    strike.frequency.setValueAtTime(pitch * (1.4 + i * 0.08), at);
+    strike.frequency.exponentialRampToValueAtTime(Math.max(35, end), at + 0.12);
     strikeGain.gain.setValueAtTime(0.0001, at);
-    strikeGain.gain.exponentialRampToValueAtTime(0.16, at + 0.006);
+    strikeGain.gain.exponentialRampToValueAtTime(0.2, at + 0.006);
     strikeGain.gain.exponentialRampToValueAtTime(0.0001, at + 0.14);
     strike.connect(strikeGain).connect(effectsBus);
     strike.start(at);
     strike.stop(at + 0.15);
   }
   noise.stop(now + duration);
-  growl.stop(now + 1);
-  shriek.stop(now + 0.65);
+  carrier.stop(now + duration);
+  harmonic.stop(now + duration);
+  lfo.stop(now + duration);
 }
 // All scene art is bundled locally; the canvas fallback keeps the UI usable while an image decodes.
 const sceneImages = new Map();
@@ -477,6 +523,19 @@ function landscape(canvas, kind) {
   }
   return image.decode().then(render);
 }
+const creatureImages = new Map();
+function loadCreature(scene) {
+  if (!scene?.ghoul) return Promise.resolve(null);
+  let image = creatureImages.get(scene.ghoul);
+  if (!image) {
+    image = new Image();
+    image.decoding = "async";
+    image.src = `/static/creatures/${scene.ghoul}.webp`;
+    creatureImages.set(scene.ghoul, image);
+  }
+  if (image.complete && image.naturalWidth) return Promise.resolve(image);
+  return image.decode().then(() => image);
+}
 const GHOUL_STYLES = {
   "grave-warden": ["#aeb9a4", "#090d10", "#dce7a7", "lantern"],
   "antler-witch": ["#768574", "#10130f", "#ffcf77", "antlers"],
@@ -500,6 +559,25 @@ const GHOUL_STYLES = {
   "room-guest": ["#d3c7bd", "#20191b", "#ff3030", "long"],
 };
 function ghoul(progress, scene = selected) {
+  const image = creatureImages.get(scene?.ghoul);
+  if (image?.complete && image.naturalWidth) {
+    const eased = 1 - Math.pow(1 - progress, 3),
+      low = scene.ghoul === "cave-crawler" || scene.ghoul === "rat-king",
+      targetHeight = low ? 620 : 760,
+      ratio = targetHeight / image.naturalHeight,
+      scale = 0.56 + eased * 0.44,
+      width = image.naturalWidth * ratio * scale,
+      height = image.naturalHeight * ratio * scale,
+      center = low ? 845 : 900,
+      x = center - width / 2 + (1 - eased) * 300,
+      y = 735 - height + (1 - eased) * 330;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, eased * 2.6);
+    ctx.filter = "drop-shadow(0 20px 28px rgba(0,0,0,.9)) contrast(1.08)";
+    ctx.drawImage(image, x, y, width, height);
+    ctx.restore();
+    return;
+  }
   const [skin, cloth, glow, feature] =
     GHOUL_STYLES[scene?.ghoul] || GHOUL_STYLES["grave-warden"];
   ctx.save();
@@ -833,13 +911,14 @@ async function choose(scene) {
   $("#error").textContent = "";
   $("#go").hidden = false;
   $("#go").disabled = true;
-  const sceneReady = landscape(background, scene);
+  const sceneReady = landscape(background, scene),
+    creatureReady = loadCreature(scene);
   if (!document.fullscreenElement)
     document.documentElement.requestFullscreen().catch(() => {});
   const token = generation;
   try {
     await loadConfig();
-    await sceneReady;
+    await Promise.all([sceneReady, creatureReady]);
     if (!navigator.mediaDevices?.getUserMedia)
       throw Error("Camera and microphone access requires localhost or HTTPS.");
     const acquired = await navigator.mediaDevices.getUserMedia({

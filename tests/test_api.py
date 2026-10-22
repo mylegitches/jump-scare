@@ -18,6 +18,10 @@ class BoothTests(unittest.TestCase):
         self.assertEqual(len(scenes), 20)
         self.assertEqual(len({scene['ghoul'] for scene in scenes}), 20)
         self.assertEqual(len({scene['sound'] for scene in scenes}), 20)
+        for scene in scenes:
+            creature = self.client.get(f"/static/creatures/{scene['ghoul']}.webp")
+            self.assertEqual(creature.status_code, 200)
+            self.assertEqual(creature.content[:4], b'RIFF')
         self.assertEqual(self.client.get('/api/admin/captures').status_code, 401)
         r = self.client.post('/api/captures?scene=forest', content=b'video fixture')
         self.assertEqual(r.status_code, 200)
