@@ -7,6 +7,8 @@ const $ = (s) => document.querySelector(s);
 const isIOSDevice =
   /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isMobileDevice =
+  isIOSDevice || /Android|Mobile|Tablet/i.test(navigator.userAgent);
 let scenes = [],
   selected = null,
   stream = null,
@@ -1474,6 +1476,10 @@ async function save() {
     pending = null;
     $("#instruction").textContent = "A portrait to remember.";
     $("#hint").textContent = "Saved.";
+    if (!isMobileDevice) {
+      location.assign(completed.sharePath);
+      return;
+    }
     $("#booth-share-qr").src = completed.shareQr;
     $("#booth-share-link").href = completed.sharePath;
     $("#share-overlay").hidden = false;

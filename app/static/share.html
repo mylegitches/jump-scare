@@ -15,6 +15,10 @@
       h1 { margin: 0; font-size: clamp(25px, 7vw, 48px); line-height: 1.05; }
       h1 span { color: #4cc26a; }
       #date { color: #8492a6; font-size: 13px; }
+      .qr-panel { display: grid; grid-template-columns: 190px minmax(0, 1fr); align-items: center; gap: 22px; margin-bottom: 24px; padding: 18px; border: 1px solid #2c2f3e; border-radius: 12px; background: #1a1d27; }
+      .qr-panel img { width: 190px; height: 190px; max-height: none; padding: 8px; border: 0; border-radius: 8px; background: white; }
+      .qr-panel h2 { margin: 0 0 6px; font-size: 22px; }
+      .qr-panel p { margin: 0; color: #8492a6; }
       .media { display: grid; gap: 18px; }
       img, video { display: block; width: 100%; max-height: 72dvh; object-fit: contain; border: 1px solid #2c2f3e; border-radius: 12px; background: #050608; }
       .downloads { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
@@ -33,13 +37,24 @@
       .more-photos { margin-top: 28px; border-color: #2c2f3e; background: #232736; }
       #share-status { min-height: 24px; color: #4cc26a; font-size: 13px; }
       #error { color: #ff8f86; }
-      @media (max-width: 560px) { .share-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      @media (max-width: 560px) {
+        .qr-panel { grid-template-columns: 1fr; text-align: center; }
+        .qr-panel img { margin: auto; }
+        .share-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
     </style>
   </head>
   <body>
     <main>
       <header><div><h1 id="title">Your <span>moment.</span></h1><div id="date"></div></div></header>
       <p id="error" role="alert"></p>
+      <section class="qr-panel">
+        <img id="result-qr" alt="QR code for this photo and video" />
+        <div>
+          <h2>Get this moment on your phone</h2>
+          <p>Scan the QR code, or use the downloads and sharing buttons below.</p>
+        </div>
+      </section>
       <div class="media" id="media"></div>
       <div class="downloads" id="downloads"></div>
       <section class="share-panel" aria-labelledby="share-heading">
@@ -61,6 +76,7 @@
     <script>
       (async () => {
         const token = location.pathname.split('/').filter(Boolean).pop();
+        document.querySelector('#result-qr').src = `/api/share/${encodeURIComponent(token)}/qr.png`;
         const response = await fetch(`/api/share/${encodeURIComponent(token)}`);
         if (!response.ok) throw Error('This shared moment is unavailable.');
         const item = await response.json();
