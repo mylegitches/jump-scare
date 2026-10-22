@@ -933,6 +933,7 @@ select {
 }
 #booth #countdown {
   z-index: 6;
+  opacity: 0;
   display: grid;
   place-items: center;
   color: #d8c49a;

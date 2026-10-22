@@ -1100,6 +1100,30 @@ function ghoul(progress, scene = selected) {
   }
   ctx.restore();
 }
+function drawCountdownOnVideo(number, now) {
+  const pulse = 0.92 + Math.sin(now / 85) * 0.06,
+    jitterX = Math.sin(now / 23) * 5,
+    jitterY = Math.cos(now / 31) * 4;
+  ctx.save();
+  ctx.translate(640 + jitterX, 360 + jitterY);
+  ctx.rotate(Math.sin(now / 140) * 0.035);
+  ctx.scale(pulse, pulse);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "900 430px Georgia, 'Times New Roman', serif";
+  ctx.lineJoin = "round";
+  ctx.shadowColor = "rgba(155,21,0,.95)";
+  ctx.shadowBlur = 42;
+  ctx.lineWidth = 24;
+  ctx.strokeStyle = "rgba(33,0,0,.92)";
+  ctx.strokeText(String(number), 0, 5);
+  ctx.fillStyle = "#d8c49a";
+  ctx.fillText(String(number), 0, 0);
+  ctx.globalAlpha = 0.42;
+  ctx.fillStyle = "#fff4d0";
+  ctx.fillText(String(number), -7, -8);
+  ctx.restore();
+}
 function draw(now) {
   ctx.drawImage(background, 0, 0);
   const remaining = recording ? 3000 - (now - started) : 3000;
@@ -1145,6 +1169,7 @@ function draw(now) {
     ghoul(scareProgress, selected);
   if (recording) {
     const count = remaining > 0 ? Math.ceil(remaining / 1000) : 0;
+    if (count) drawCountdownOnVideo(count, now);
     $("#countdown").textContent = count || "";
     if (count && count !== lastCountdown) {
       lastCountdown = count;
