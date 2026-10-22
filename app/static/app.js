@@ -86,7 +86,7 @@ function personComposition() {
   return {
     source: personBounds,
     x: 640 - width / 2,
-    y: 360 - height / 2 + 22,
+    y: 720 - height,
     w: width,
     h: height,
   };
