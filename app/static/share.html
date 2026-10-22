@@ -18,8 +18,22 @@
       .media { display: grid; gap: 18px; }
       img, video { display: block; width: 100%; max-height: 72dvh; object-fit: contain; border: 1px solid #2c2f3e; border-radius: 12px; background: #050608; }
       .downloads { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
-      a { min-height: 48px; display: inline-grid; place-items: center; padding: 10px 18px; border: 1px solid #237237; border-radius: 8px; background: #095b1b; color: white; text-decoration: none; }
+      a, button { min-height: 48px; display: inline-grid; place-items: center; padding: 10px 18px; border: 1px solid #237237; border-radius: 8px; background: #095b1b; color: white; text-decoration: none; font: inherit; cursor: pointer; }
+      .share-panel { margin-top: 22px; padding: 18px; border: 1px solid #2c2f3e; border-radius: 12px; background: #1a1d27; }
+      .share-panel h2 { margin: 0 0 4px; font-size: 20px; }
+      .share-panel p { margin: 0 0 14px; color: #8492a6; font-size: 13px; }
+      .share-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+      .share-actions button, .share-actions a { min-width: 0; padding-inline: 10px; text-align: center; }
+      .facebook { background: #1877f2; border-color: #4b96f5; }
+      .instagram { background: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045); border-color: #d95779; }
+      .tiktok { background: #050505; border-color: #55d9d4; }
+      .whatsapp { background: #167f45; border-color: #25d366; }
+      .messages { background: #246bd5; border-color: #5d98ee; }
+      .share-more { background: #34394b; border-color: #555d77; }
+      .more-photos { margin-top: 28px; border-color: #2c2f3e; background: #232736; }
+      #share-status { min-height: 24px; color: #4cc26a; font-size: 13px; }
       #error { color: #ff8f86; }
+      @media (max-width: 560px) { .share-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     </style>
   </head>
   <body>
@@ -28,6 +42,21 @@
       <p id="error" role="alert"></p>
       <div class="media" id="media"></div>
       <div class="downloads" id="downloads"></div>
+      <section class="share-panel" aria-labelledby="share-heading">
+        <h2 id="share-heading">Share your moment</h2>
+        <p>Send the video to an app or share the private result-page link.</p>
+        <div class="share-actions">
+          <button id="share-facebook" class="facebook" type="button">Facebook</button>
+          <button id="share-instagram" class="instagram" type="button">Instagram</button>
+          <button id="share-tiktok" class="tiktok" type="button">TikTok</button>
+          <a id="share-whatsapp" class="whatsapp">WhatsApp</a>
+          <a id="share-messages" class="messages">Messages</a>
+          <button id="share-button" class="share-more" type="button">More apps</button>
+          <button id="copy-link" class="share-more" type="button">Copy link</button>
+        </div>
+        <div id="share-status" role="status"></div>
+      </section>
+      <a class="more-photos" href="https://photobooth.mylegitches.com/">Take more photos</a>
     </main>
     <script>
       (async () => {
@@ -47,6 +76,58 @@
         for (const [label, url] of [['Download video', item.video_url], ...(item.photo ? [['Download photo', item.photo_url]] : [])]) {
           const link = document.createElement('a'); link.href = url; link.download = ''; link.textContent = label; links.append(link);
         }
+        const boothUrl = 'https://photobooth.mylegitches.com/',
+          shareTitle = `${item.scene} · ${item.booth_name}`,
+          shareText = `See my photo booth moment. Take your own at ${boothUrl}`,
+          fullMessage = `${shareText}\n${location.href}`,
+          status = document.querySelector('#share-status'),
+          copyLink = async () => {
+            await navigator.clipboard.writeText(location.href);
+            status.textContent = 'Private moment link copied to clipboard.';
+          },
+          shareLink = async () => {
+            if (navigator.share) {
+              await navigator.share({ title: shareTitle, text: shareText, url: location.href });
+              return;
+            }
+            await copyLink();
+          },
+          shareVideo = async (platform) => {
+            status.textContent = `Preparing your video for ${platform}…`;
+            const videoResponse = await fetch(item.video_url);
+            if (!videoResponse.ok) throw Error('The video could not be prepared for sharing.');
+            const blob = await videoResponse.blob(),
+              extension = item.video_type === 'mp4' ? 'mp4' : 'webm',
+              file = new File([blob], `photo-booth-moment.${extension}`, { type: blob.type || `video/${extension}` }),
+              data = { files: [file], title: shareTitle, text: shareText };
+            if (navigator.share && (!navigator.canShare || navigator.canShare(data))) {
+              status.textContent = `Choose ${platform} from the share sheet.`;
+              try {
+                await navigator.share(data);
+                return;
+              } catch (error) {
+                if (error.name === 'AbortError') throw error;
+              }
+            }
+            const download = document.createElement('a');
+            download.href = item.video_url;
+            download.download = `photo-booth-moment.${extension}`;
+            download.click();
+            await copyLink();
+            status.textContent = `Video downloaded. Open ${platform} to post it; the moment link was also copied.`;
+          },
+          safely = (action) => async () => {
+            try { await action(); }
+            catch (error) { if (error.name !== 'AbortError') status.textContent = error.message; }
+          };
+        document.querySelector('#share-facebook').onclick = () =>
+          window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(location.href)}`, '_blank', 'noopener,noreferrer');
+        document.querySelector('#share-instagram').onclick = safely(() => shareVideo('Instagram'));
+        document.querySelector('#share-tiktok').onclick = safely(() => shareVideo('TikTok'));
+        document.querySelector('#share-whatsapp').href = `https://wa.me/?text=${encodeURIComponent(fullMessage)}`;
+        document.querySelector('#share-messages').href = `sms:?&body=${encodeURIComponent(fullMessage)}`;
+        document.querySelector('#share-button').onclick = safely(shareLink);
+        document.querySelector('#copy-link').onclick = safely(copyLink);
       })().catch(error => document.querySelector('#error').textContent = error.message);
     </script>
   </body>
