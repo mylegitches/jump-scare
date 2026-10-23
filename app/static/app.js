@@ -146,7 +146,7 @@ function updateSegmentation(now) {
     !stream ||
     video.readyState < 2 ||
     !$("#cutout").checked ||
-    now - lastSegmentation < 66
+    now - lastSegmentation < (isIOSDevice ? 140 : 66)
   )
     return;
   lastSegmentation = now;
@@ -512,6 +512,22 @@ function loadRecordedCreatureSound(scene = selected) {
     recordedCreatureSounds.set(creatureId, entry);
   }
   return entry;
+}
+function unlockRecordedScareOnIOS() {
+  if (!isIOSDevice) return;
+  const audio = loadRecordedCreatureSound().audio;
+  audio.muted = true;
+  const unlocked = audio.play();
+  if (unlocked?.then)
+    unlocked
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = false;
+      })
+      .catch(() => {
+        audio.muted = false;
+      });
 }
 function playRecordedScare() {
   const entry = loadRecordedCreatureSound();
@@ -1252,58 +1268,89 @@ async function choose(scene) {
   $("#error").textContent = "";
   $("#go").hidden = false;
   $("#go").disabled = true;
-    $("#go").querySelector("span").textContent = "GO!";
-  const sceneReady = landscape(background, scene),
-    creatureReady = loadCreature(scene);
+  $("#go").querySelector("span").textContent = "CAMERA…";
+  const sceneReady = landscape(background, scene).catch(() => null),
+    creatureReady = loadCreature(scene).catch(() => null);
   if (!document.fullscreenElement)
     document.documentElement.requestFullscreen().catch(() => {});
   const token = generation;
   try {
-    await loadConfig();
-    await Promise.all([sceneReady, creatureReady]);
+    loadConfig();
     if (!navigator.mediaDevices?.getUserMedia)
       throw Error("Camera and microphone access requires localhost or HTTPS.");
-    const acquired = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        facingMode: "user",
-      },
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
+    const videoConstraints = {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      facingMode: "user",
+    };
+    let acquired;
+    try {
+      acquired = await navigator.mediaDevices.getUserMedia({
+        video: videoConstraints,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+    } catch (cameraAndMicError) {
+      try {
+        acquired = await navigator.mediaDevices.getUserMedia({
+          video: videoConstraints,
+          audio: false,
+        });
+        $("#hint").textContent =
+          "Microphone unavailable; the booth will still save a silent reaction video.";
+      } catch (_) {
+        throw cameraAndMicError;
+      }
+    }
     if (token !== generation) {
       acquired.getTracks().forEach((t) => t.stop());
       return;
     }
     stream = acquired;
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
     video.srcObject = stream;
     await video.play();
     if (!("MediaRecorder" in window))
       throw Error("This browser cannot record video. Update Safari, Chrome, or Edge and try again.");
-    if ($("#cutout").checked) {
-      $("#camera-status").textContent = "Preparing person cutout…";
-      try {
-        await setupSegmenter();
-        updateSegmentation(performance.now());
-      } catch (_) {
-        $("#cutout").checked = false;
-        segmentationReady = false;
-        $("#hint").textContent =
-          "Person cutout is unavailable on this device; the booth will still work.";
-      }
-    }
-    $("#camera-status").textContent = $("#cutout").checked
+    void Promise.allSettled([sceneReady, creatureReady]);
+    if (token !== generation) return;
+    const readyStatus = acquired.getAudioTracks().length
       ? "● Camera + microphone ready"
-      : "● Camera ready · compatibility mode";
+      : "● Camera ready · no microphone";
+    $("#camera-status").textContent = $("#cutout").checked
+      ? "● Camera ready · preparing cutout"
+      : readyStatus;
     $("#go").disabled = false;
+    $("#go").querySelector("span").textContent = "GO!";
+    if ($("#cutout").checked) {
+      setupSegmenter()
+        .then(() => {
+          if (token !== generation || !stream) return;
+          updateSegmentation(performance.now());
+          $("#camera-status").textContent = readyStatus;
+        })
+        .catch(() => {
+          if (token !== generation) return;
+          $("#cutout").checked = false;
+          segmentationReady = false;
+          $("#camera-status").textContent = readyStatus;
+          $("#hint").textContent =
+            "Person cutout is unavailable on this device; the booth will still work.";
+        });
+    } else {
+      $("#camera-status").textContent = readyStatus;
+    }
   } catch (e) {
     $("#error").textContent =
       `${e.message} Allow the camera and microphone in your browser, then choose the scene again.`;
     $("#camera-status").textContent = "Camera or microphone unavailable";
+    $("#go").querySelector("span").textContent = "CAMERA BLOCKED";
   }
 }
 function home() {
@@ -1339,6 +1386,7 @@ function start() {
   lastCountdown = 0;
   scarePlayed = false;
   scarePlacement = null;
+  unlockRecordedScareOnIOS();
   const mimeCandidates = [
     "video/mp4;codecs=h264,aac",
     "video/mp4",
@@ -1372,6 +1420,7 @@ function start() {
     let c = null;
     try {
       c = ensureAudio();
+      if (c?.state === "suspended") c.resume().catch(() => {});
     } catch (_) {
       c = null;
     }
@@ -1430,7 +1479,7 @@ function start() {
       $("#go").hidden = false;
       $("#go").disabled = false;
       $("#go").querySelector("span").textContent = "TRY AGAIN";
-      output.getTracks().forEach((t) => t.stop());
+      if (!isIOSDevice) output.getTracks().forEach((t) => t.stop());
     };
     recorder.start();
     started = performance.now();
@@ -1445,7 +1494,7 @@ function start() {
       : "Look at the screen. Your photo includes the scene; this device records the camera reaction.";
   } catch (e) {
     microphoneSource?.disconnect();
-    output?.getTracks().forEach((t) => t.stop());
+    if (!isIOSDevice) output?.getTracks().forEach((t) => t.stop());
     $("#go").disabled = false;
     $("#go").querySelector("span").textContent = "TRY AGAIN";
     $("#error").textContent = `Could not start on this device: ${e.message || "video recording failed"}`;
