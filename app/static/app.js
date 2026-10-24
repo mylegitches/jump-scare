@@ -295,15 +295,15 @@ function playTick(number) {
   const now = c.currentTime,
     osc = c.createOscillator(),
     gain = c.createGain();
-  osc.type = "square";
-  osc.frequency.setValueAtTime(95 + number * 18, now);
-  osc.frequency.exponentialRampToValueAtTime(48, now + 0.16);
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(1180 + number * 35, now);
+  osc.frequency.exponentialRampToValueAtTime(820, now + 0.045);
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.22, now + 0.008);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
+  gain.gain.exponentialRampToValueAtTime(0.045, now + 0.002);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
   osc.connect(gain).connect(effectsBus);
   osc.start(now);
-  osc.stop(now + 0.21);
+  osc.stop(now + 0.06);
 }
 const CREATURE_SOUNDS = {
   "grave-warden": { voice: "groan", pitch: 68, peak: 92, end: 30, noise: 470, duration: 1.75, pulses: 3 },
